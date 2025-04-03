@@ -1,0 +1,15 @@
+alias fwhat = ufixed(4+10,(6+2)-4);
+alias f88 = sfixed(16,8);
+
+function f88 add(f88 a, f88 b)
+	if a > 127 then
+		return 0;
+	end
+	return a+b;
+end
+
+function void main()
+	*screen = 9387;
+end
+
+local u16* screen = 0xf800;

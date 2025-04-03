@@ -1,0 +1,16 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/fml
+fml.so
+fml.dylib
+fml.dll
+fml.a
+fml.lib
+fml-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
