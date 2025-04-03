@@ -5,6 +5,7 @@ import std.string;
 import std.ascii;
 import std.conv;
 import codegen;
+import std.format;
 
 enum KEYWORD
 {
@@ -28,6 +29,7 @@ enum KEYWORD
 	RETURN,
 	ALIAS,
 	IF,
+	CONST,
 	
 	LEFTPAREN,
 	RIGHTPAREN,
@@ -37,7 +39,8 @@ enum KEYWORD
 	PLUS,
 	COMMA,
 	MINUS,
-	GREATER
+	GREATER,
+	DOUBLEEQUAL
 }
 
 enum StatementType
@@ -99,14 +102,6 @@ enum ExpressionType
 	CALL
 }
 
-class Expression
-{
-	ExpressionType type;
-	string var;
-	Value value;
-	Expression lvalue;
-}
-
 class Statement
 {
 	StatementType type;
@@ -126,6 +121,7 @@ class Function
 
 class Module
 {
+	string name;
 	Function[string] functions;
 	Variable[string] variables;
 }
@@ -133,6 +129,11 @@ class Module
 Module[string] modules;
 
 Token[] tokens;
+
+KEYWORD[string] firstStringToToken = 
+[
+	"==":KEYWORD.DOUBLEEQUAL
+];
 
 KEYWORD[string] stringToToken = [
 	"void": KEYWORD.VOID,
@@ -149,6 +150,7 @@ KEYWORD[string] stringToToken = [
 	"then":KEYWORD.THEN,
 	"return":KEYWORD.RETURN,
 	"alias":KEYWORD.ALIAS,
+	"const":KEYWORD.CONST,
 	"if":KEYWORD.IF,
 	" ":KEYWORD.SKIP,
 	"\n":KEYWORD.SKIP,
@@ -192,6 +194,10 @@ void Tokenize(string code)
 	{
 		foreach(string kwStr, KEYWORD kw; stringToToken)
 		{
+			foreach(string kwStr, KEYWORD kw; firstStringToToken)
+			{
+				code = TryToken(kwStr,code,kw,found);
+			}
 			code = TryToken(kwStr,code,kw,found);
 		}
 		if(!found)
@@ -336,7 +342,8 @@ enum NumberType
 	IMMEDIATE,
 	BINARY_OPERATION,
 	UNARY_OPERATION,
-	VARIABLE
+	VARIABLE,
+	CALL
 }
 
 class Number
@@ -347,7 +354,11 @@ class Number
 		ushort imm;
 		BinaryOperation binary_op;
 		UnaryOperation unary_op;
-		string var;
+		struct
+		{
+			string var;
+			Number[] args;
+		}
 	}
 }
 
@@ -384,7 +395,7 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 {
 	GetNumberUnary(tv,num);
 	
-	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER))
+	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER) || tv.check(KEYWORD.DOUBLEEQUAL))
 	{
 		Token operator = tv.next();
 		Number newnum = new Number();
@@ -401,6 +412,9 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 			case KEYWORD.GREATER:
 				newnum.binary_op.type = BinaryOperationType.GREATER;
 				break;
+			case KEYWORD.DOUBLEEQUAL:
+				newnum.binary_op.type = BinaryOperationType.EQUAL;
+				break;
 			default:
 				throw new Exception("Unknown operator");
 				return;
@@ -413,6 +427,12 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 
 ushort ParseNumber(string str)
 {
+	if(startsWith(str,"0x"))
+	{
+		ushort o;
+		str.formattedRead("0x%x",o);
+		return o;
+	}
 	return to!ushort(str);
 }
 
@@ -430,6 +450,23 @@ void GetNumberImmediate(TokenVomiter tv, ref Number num)
 		num = new Number();
 		num.var = tv.expect(KEYWORD.NAME).name;
 		num.type = NumberType.VARIABLE;
+		if(tv.optional(KEYWORD.LEFTPAREN))
+		{
+			num.type = NumberType.CALL;
+			while(tv.peek().type != KEYWORD.RIGHTPAREN)
+			{
+				num.args ~= GetNumber(tv);
+				Token tok = tv.next();
+				if(tok.type == KEYWORD.RIGHTPAREN)
+				{
+					break;
+				}
+				else if(tok.type != KEYWORD.COMMA)
+				{
+					throw new Exception("Expected comma");
+				}
+			}
+		}
 		return;
 	}
 	GetNumberParens(tv,num);
@@ -477,6 +514,7 @@ Type[string] aliases;
 
 Type GetType(TokenVomiter tv)
 {
+	tv.optional(KEYWORD.CONST);
 	Token tok = tv.next();
 	Type ret;
 	switch(tok.type)
@@ -589,6 +627,7 @@ Function ParseFunction(TokenVomiter tv)
 		Variable var = new Variable();
 		var.type = GetType(tv);
 		var.name = tv.expect(KEYWORD.NAME).name;
+		func.args ~= var;
 		if(tv.peek().type != KEYWORD.RIGHTPAREN)
 		{
 			tv.expect(KEYWORD.COMMA);
@@ -630,6 +669,7 @@ void Parse(TokenVomiter tv, string name)
 {
 	Token tok = tv.next();
 	Module mod = new Module();
+	mod.name = name;
 	while(tok.type != KEYWORD.SKIP)
 	{
 		switch(tok.type)
@@ -653,7 +693,15 @@ void Parse(TokenVomiter tv, string name)
 	}
 	modules[name] = mod;
 }
-
+static this()
+{
+	aliases = [
+		"byte": types.u8,
+		"char": types.s8,
+		"word": types.u16,
+		"int": types.s16
+	];
+}
 void main(string[] args)
 {
 	if(args.length == 1)
