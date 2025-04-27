@@ -529,10 +529,7 @@ Type[string] aliases;
 Type GetType(TokenVomiter tv)
 {
 	Type ret;
-	if(tv.optional(KEYWORD.CONST))
-	{
-		ret.isconst = true;
-	}
+	bool isconst = tv.optional(KEYWORD.CONST);
 	Token tok = tv.next();
 	switch(tok.type)
 	{
@@ -562,6 +559,10 @@ Type GetType(TokenVomiter tv)
 			break;
 		default:
 			throw new Exception("Expected type");
+	}
+	if(isconst)
+	{
+		ret.isconst = true;
 	}
 	while(tv.optional(KEYWORD.STAR))
 	{
@@ -724,6 +725,7 @@ void Parse(TokenVomiter tv, string name)
 				break;
 			case KEYWORD.LOCAL:
 				Variable var = ParseLocal(tv);
+				writeln(__LINE__, ": ", var.type);
 				mod.variables[var.name] = var;
 				break;
 			case KEYWORD.ALIAS:

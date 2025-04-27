@@ -8,6 +8,17 @@ class Restriction
 {
 	bool[16] used_registers;
 	ubyte result_register;
+	
+	Node[8] register_contain;
+	void SetResult(Node n)
+	{
+		this.register_contain[this.result_register>>1] = n;
+	}
+	
+	bool ResultContains(Node n)
+	{
+		return this.register_contain[this.result_register>>1] == n;
+	}
 }
 
 class Node
@@ -50,7 +61,7 @@ class Node
 	
 	void Generate(Restriction res)
 	{
-	
+		throw new Exception("tried to generate a restricted Node");
 	}
 	
 	Node Optimize()
@@ -94,12 +105,12 @@ class FunctionNode : Node
 		return ret;
 	}
 	
-	override void Generate()
+	override void Generate(Restriction res)
 	{
 		writeln("Begin Function ", this.name);
 		foreach(input; inputs)
 		{
-			input.Generate();
+			input.Generate(res);
 		}
 		writeln("End Function ", this.name);
 	}
@@ -108,7 +119,7 @@ class FunctionNode : Node
 class ConstantNode : Node
 {
 	ushort val;
-	Type type;
+	private Type type;
 	this(ushort val)
 	{
 		super();
@@ -135,13 +146,13 @@ class ConstantNode : Node
 	
 	override void Generate(Restriction res)
 	{
-		if(this.val < 0x80)
+		if(this.val < 0x40)
 		{
 			Emit(cast(ushort)(0xE000 | (res.result_register<<8) | this.val));
 		}
-		else if(this.val >= 0xff80)
+		else if(this.val >= 0xffc0)
 		{
-			Emit(cast(ushort)(0xE000 | (res.result_register<<8) | (this.val&0xff)));
+			Emit(cast(ushort)(0xE000 | (res.result_register<<8) | (this.val&0x7f)));
 		}
 		else
 		{
@@ -149,6 +160,20 @@ class ConstantNode : Node
 			Emit(cast(ushort)(((res.result_register+1)<<8)|((this.val>>>8)&0xff)));
 		}
 	}
+}
+
+ConstantNode[] constantnodes;
+
+ConstantNode FindConstant(ushort val, Type type)
+{
+	foreach(cn; constantnodes)
+	{
+		if(cn.val == val && cn.type == type)
+		{
+			return cn;
+		}
+	}
+	return new ConstantNode(val,type);
 }
 
 class ScopeNode : Node
@@ -166,16 +191,18 @@ class ScopeNode : Node
 		scopestack.length = index;
 	}
 	
-	override void Generate()
+	override void Generate(Restriction res)
 	{
 		writeln("Begin Scope ", index);
 		foreach(input; inputs)
 		{
-			input.Generate();
+			input.Generate(res);
 		}
 		writeln("End Scope ", index);
 	}
 }
+
+Type[VariableNode] globalvariables; // fuck this shit
 
 class VariableNode : Node
 {
@@ -203,10 +230,14 @@ class VariableNode : Node
 	override Node Optimize()
 	{
 		super.Optimize();
-		if(cast(ConstantNode)this.inputs[0])
+		if(cast(ConstantNode)this.inputs[0] && this.type.isconst)
 		{
-			(cast(ConstantNode)this.inputs[0]).type = this.type;
-			return this.inputs[0];
+			globalvariables.remove(this);
+			return FindConstant((cast(ConstantNode)this.inputs[0]).val,this.type);
+		}
+		else
+		{
+			globalvariables[this] = this.type;
 		}
 		return this;
 	}
@@ -259,32 +290,33 @@ class ConstantPointerNode : ConstantNode
 
 class DerefImmNode : Node
 {
-	ushort val;
-	Type type;
-
-	this(ushort val, Type type)
+	this(ConstantNode a)
 	{
 		super();
-		this.val = val;
-		this.type = type;
+		this.AddInput(a);
 	}
 
 	override void Generate(Restriction res)
 	{
-		writeln("DerefImmNode ", this.val);
-		if(type.size == 16)
+		if(res.ResultContains(this.inputs[0]))
+		{
+			return;
+		}
+		ConstantNode cn = cast(ConstantNode)(this.inputs[0]);
+		if(cn.type.size == 16)
 		{
 			Emit(cast(ushort)(0x9012 | ((cast(ushort)res.result_register)<<8)));
 		}
-		else if(type.size == 8)
+		else if(cn.type.size == 8)
 		{
 			Emit(cast(ushort)(0x9010 | ((cast(ushort)res.result_register)<<8)));
 		}
 		else
 		{
-			throw new Exception("bruh type.size = " ~ to!string(type.size));
+			throw new Exception("bruh type.size = " ~ to!string(cn.type.size));
 		}
-		Emit(this.val);
+		Emit(cn.val);
+		res.SetResult(this.inputs[0]);
 	}
 }
 
@@ -305,12 +337,24 @@ class ReferenceNode : Node
 		writeln("Ref ", (cast(VariableNode)inputs[0]).name);
 	}
 	
+	override void Generate(Restriction res)
+	{
+		if(res.ResultContains(this.inputs[0]))
+		{
+			return;
+		}
+		Emit(cast(ushort)(0x9012 | (res.result_register<<8)));
+		LinkVariable(cast(VariableNode)this.inputs[0]);
+		res.SetResult(this.inputs[0]);
+	}
+	
 	override Node Optimize()
 	{
 		super.Optimize();
 		if(cast(ConstantNode)this.inputs[0])
 		{
-			return new ConstantNode((cast(ConstantNode)this.inputs[0]).val, (cast(ConstantNode)this.inputs[0]).type);
+			//return FindConstant((cast(ConstantNode)this.inputs[0]).val, (cast(ConstantNode)this.inputs[0]).type);
+			return this.inputs[0];
 		}
 		return this;
 	}
@@ -351,13 +395,25 @@ class UnaryNode : Node
 	
 	override void Generate()
 	{
-		super.Generate();
 		writeln("Begin Unary ", type);
 		foreach(input; inputs)
 		{
 			input.Generate();
 		}
 		writeln("End Unary ", type);
+	}
+	
+	override void Generate(Restriction res)
+	{
+		inputs[0].Generate(res);
+		if(this.type == UnaryOperationType.DEREF)
+		{
+			Emit(cast(ushort)(0x9002 | (res.result_register << 4) | (res.result_register << 8)));
+		}
+		else
+		{
+			throw new Exception("idk what to do with " ~ to!string(this.type));
+		}
 	}
 	
 	override Node Optimize()
@@ -369,15 +425,38 @@ class UnaryNode : Node
 		}
 		if(this.type == UnaryOperationType.DEREF && cast(ConstantNode)(this.inputs[0]) !is null)
 		{
-			return new DerefImmNode((cast(ConstantNode)this.inputs[0]).val,(cast(ConstantNode)this.inputs[0]).type);
+			return new DerefImmNode(cast(ConstantNode)this.inputs[0]);
 		}
 		return this;
+	}
+}
+
+class AddImmNode : Node
+{
+	ubyte val;
+	this(Node a, ubyte val)
+	{
+		this.AddInput(a);
+		this.val = val;
+	}
+	
+	override string toString()
+	{
+		return "AddImmNode " ~ super.toString();
+	}
+	
+	override void Generate(Restriction res)
+	{
+		inputs[0].Generate(res);
+		Emit(cast(ushort)(0xE080 | this.val | (res.result_register<<8)));
+		res.SetResult(this);
 	}
 }
 
 class BinaryNode : Node
 {
 	BinaryOperationType type;
+	
 	this(Node a, Node b, BinaryOperationType type)
 	{
 		this.AddInput(a);
@@ -392,7 +471,6 @@ class BinaryNode : Node
 	
 	override void Generate(Restriction res)
 	{
-		super.Generate();
 		writeln("Begin Binary ", this.type);
 		inputs[0].Generate(res);
 		res.result_register += 2;
@@ -414,6 +492,7 @@ class BinaryNode : Node
 		{
 			throw new Exception("idk how to emit " ~ to!string(this.type));
 		}
+		res.SetResult(this);
 		writeln("End Binary ", this.type);
 	}
 	
@@ -426,7 +505,23 @@ class BinaryNode : Node
 			ushort b = (cast(ConstantNode)this.inputs[1]).val;
 			if(this.type == BinaryOperationType.ADD)
 			{
-				return new ConstantNode(cast(ushort)(a+b));
+				return FindConstant(cast(ushort)(a+b), types.u16);
+			}
+		}
+		else if((cast(ConstantNode)this.inputs[0]))
+		{
+			ushort a = (cast(ConstantNode)this.inputs[0]).val;
+			if(this.type == BinaryOperationType.ADD && (a < 0x40 || a > 0xffc0))
+			{
+				return new AddImmNode(this.inputs[1],cast(ubyte)a&0x7f);
+			}
+		}
+		else if((cast(ConstantNode)this.inputs[1]))
+		{
+			ushort a = (cast(ConstantNode)this.inputs[1]).val;
+			if(this.type == BinaryOperationType.ADD && (a < 0x40 || a > 0xffc0))
+			{
+				return new AddImmNode(this.inputs[0],cast(ubyte)a&0x7f);
 			}
 		}
 		return this;
@@ -445,9 +540,9 @@ class ReturnNode : Node
 		return "Return " ~ super.toString();
 	}
 	
-	override void Generate()
+	override void Generate(Restriction res)
 	{
-		Restriction res = new Restriction();
+		//Restriction res = new Restriction();
 		res.result_register = 0;
 		writeln("Begin Return");
 		foreach(input; inputs)
@@ -479,9 +574,9 @@ class ConditionNode : Node
 		return "Condition " ~ super.toString();
 	}
 	
-	override void Generate()
+	override void Generate(Restriction res)
 	{
-		Restriction res = new Restriction();
+		//Restriction res = new Restriction();
 		res.result_register = 0;
 		writeln("Begin Condition");
 		ulong beginif = templabel;
@@ -496,7 +591,7 @@ class ConditionNode : Node
 		}
 		if(!alwaysfail)
 		{
-			inputs[1].Generate();
+			inputs[1].Generate(res);
 			if(loop)
 			{
 				LinkLabelOffset(0xCE00,beginif);
@@ -540,21 +635,41 @@ class AssignNode : Node
 		return "Assign " ~ super.toString();
 	}
 	
-	override void Generate()
+	override void Generate(Restriction res)
 	{
 		writeln("Begin Assign");
-		Restriction res = new Restriction();
+		//Restriction res = new Restriction();
 		res.result_register = 0;
 		//inputs[0].Generate();
 		if(cast(DerefImmNode)inputs[0])
 		{
 			inputs[1].Generate(res);
 			Emit(cast(ushort)(0x9013));
-			Emit((cast(DerefImmNode)inputs[0]).val);
+			Emit((cast(ConstantNode)inputs[0].inputs[0]).val);
+		}
+		else if(cast(UnaryNode)inputs[0])
+		{
+			if((cast(UnaryNode)inputs[0]).type == UnaryOperationType.DEREF)
+			{
+				inputs[0].inputs[0].Generate(res);
+				res.result_register = 2;
+				inputs[1].Generate(res);
+				Emit(cast(ushort)(0x9203));
+			}
+			else
+			{
+				throw new Exception("i HAVE to kill myself... ");
+			}
+		}
+		else if(cast(ReferenceNode)inputs[0])
+		{
+			inputs[1].Generate(res);
+			Emit(cast(ushort)(0x9013));
+			LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
 		}
 		else
 		{
-			throw new Exception("idfk how to emit this im paid too little");
+			throw new Exception("idfk how to emit this im paid too little " ~ to!string(inputs[0]));
 		}
 		writeln("End Assign");
 	}
@@ -612,7 +727,7 @@ Node GatherNumber(Number num)
 	}
 	else if(num.type == NumberType.IMMEDIATE)
 	{
-		numnode = new ConstantNode(num.imm);
+		numnode = FindConstant(num.imm, types.u16);
 	}
 	else if(num.type == NumberType.BINARY_OPERATION)
 	{
@@ -624,11 +739,11 @@ Node GatherNumber(Number num)
 	}
 	else if(num.type == NumberType.VARIABLE)
 	{
-		numnode = new ReferenceNode(FindVariable(num.var, null, types.u16));
+		numnode = new ReferenceNode(FindVariable(num.var, null, types.voidtype));
 	}
 	else
 	{
-		writeln(num.type);
+		throw new Exception("what is this " ~ to!string(num.type));
 	}
 	return numnode;
 }

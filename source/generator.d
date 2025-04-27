@@ -36,6 +36,20 @@ class L_FuncLink : Linkable
 	}
 }
 
+class L_VarLink : Linkable
+{
+	VariableNode var;
+	this(VariableNode var)
+	{
+		this.var = var;
+	}
+	
+	ushort Get()
+	{
+		return cast(ushort)(varIndex[this.var]<<1);
+	}
+}
+
 class L_FuncOffsetLink : Linkable
 {
 	ulong label;
@@ -56,7 +70,9 @@ class L_FuncOffsetLink : Linkable
 
 
 Linkable[] emitted;
+Linkable[] emittedram;
 ulong[FunctionNode] functionIndex;
+ulong[VariableNode] varIndex;
 ulong[ulong] labelIndex;
 
 
@@ -71,6 +87,11 @@ void LinkFunction(FunctionNode func)
 	emitted ~= new L_FuncLink(func);
 }
 
+void LinkVariable(VariableNode func)
+{
+	emitted ~= new L_VarLink(func);
+}
+
 void LinkLabelOffset(ushort val, ulong label)
 {
 	emitted ~= new L_FuncOffsetLink(val,emitted.length,label);
@@ -79,6 +100,12 @@ void LinkLabelOffset(ushort val, ulong label)
 void LabelFunction(FunctionNode func)
 {
 	functionIndex[func] = emitted.length;
+}
+
+void LabelVariable(VariableNode var)
+{
+	varIndex[var] = emittedram.length+0x4800;
+	emittedram ~= new L_Imm(cast(ushort)(emittedram.length+0x4800));
 }
 
 void Label(ulong label)
@@ -95,15 +122,30 @@ void Generate()
 	{
 		node = node.Optimize();
 		LabelFunction(cast(FunctionNode)node);
-		node.Generate();
+		node.Generate(new Restriction());
+	}
+	foreach(variable, type; globalvariables)
+	{
+		if(variable.type.isconst)
+		{
+			continue;
+		}
+		writeln(variable, ": ", variable.type);
+		LabelVariable(variable);
 	}
 	
 	writeln(emitted);
 	
 	ushort[] ushorts;
-	foreach(linkable; emitted)
+	ushorts.length = 0x40000;
+	foreach(i, linkable; emitted)
 	{
-		ushorts ~= linkable.Get();
+		ushorts[i] = linkable.Get();
+	}
+	
+	foreach(i, linkable; emittedram)
+	{
+		ushorts[i+0x4800] = linkable.Get();
 	}
 	
 	toFile(ushorts,"rom.bin");

@@ -9,11 +9,15 @@ function u16 Getthing()
 end
 
 local u16 i = 0;
+local u16 j = 0;
 
 function void main()
 	while 1 do
-		while 2048 > i do
-			*(screen + i) = i;
+		i = 0;
+		while 0x7fe > i do
+			*(screen + i) = j;
+			i = i + 1;
+			j = j + 1;
 		end
 	end
 end
