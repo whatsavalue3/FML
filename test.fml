@@ -1,0 +1,19 @@
+local const u16* screen = 0xf800;
+
+local const u8* input = 0xf046;
+
+local const u16 theb = 0xb;
+
+function u16 Getthing()
+	return (*screen) + 0xff90 + theb;
+end
+
+local u16 i = 0;
+
+function void main()
+	while 1 do
+		while 2048 > i do
+			*(screen + i) = i;
+		end
+	end
+end

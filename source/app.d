@@ -4,7 +4,8 @@ import std.algorithm;
 import std.string;
 import std.ascii;
 import std.conv;
-import codegen;
+import gatherer;
+import generator;
 import std.format;
 
 enum KEYWORD
@@ -30,6 +31,8 @@ enum KEYWORD
 	ALIAS,
 	IF,
 	CONST,
+	WHILE,
+	DO,
 	
 	LEFTPAREN,
 	RIGHTPAREN,
@@ -73,6 +76,7 @@ struct Type
 	ubyte point;
 	ubyte ptrdepth;
 	bool signed;
+	bool isconst = false;
 }
 
 struct Value
@@ -151,6 +155,8 @@ KEYWORD[string] stringToToken = [
 	"return":KEYWORD.RETURN,
 	"alias":KEYWORD.ALIAS,
 	"const":KEYWORD.CONST,
+	"while":KEYWORD.WHILE,
+	"do":KEYWORD.DO,
 	"if":KEYWORD.IF,
 	" ":KEYWORD.SKIP,
 	"\n":KEYWORD.SKIP,
@@ -349,6 +355,7 @@ enum NumberType
 class Number
 {
 	NumberType type;
+	bool chill; // is computable in compile-time
 	union
 	{
 		ushort imm;
@@ -466,6 +473,10 @@ void GetNumberImmediate(TokenVomiter tv, ref Number num)
 					throw new Exception("Expected comma");
 				}
 			}
+			if(tv.peek().type == KEYWORD.RIGHTPAREN)
+			{
+				tv.next();
+			}
 		}
 		return;
 	}
@@ -505,6 +516,9 @@ ushort CalculateNumber(Number num)
 					throw new Exception("This should not happen!");
 					return 0;
 			}
+			break;
+		case NumberType.VARIABLE:
+			
 		default:
 			throw new Exception("invalid number");
 	}
@@ -514,9 +528,12 @@ Type[string] aliases;
 
 Type GetType(TokenVomiter tv)
 {
-	tv.optional(KEYWORD.CONST);
-	Token tok = tv.next();
 	Type ret;
+	if(tv.optional(KEYWORD.CONST))
+	{
+		ret.isconst = true;
+	}
+	Token tok = tv.next();
 	switch(tok.type)
 	{
 		case KEYWORD.U16:
@@ -553,7 +570,7 @@ Type GetType(TokenVomiter tv)
 	return ret;
 }
 
-Statement ParseIf(TokenVomiter tv)
+Statement ParseIf(TokenVomiter tv, Scope outer)
 {
 	Statement stat = new Statement();
 	tv.expect(KEYWORD.IF);
@@ -562,6 +579,26 @@ Statement ParseIf(TokenVomiter tv)
 	stat.loop = false;
 	tv.expect(KEYWORD.THEN);
 	stat.inside = GetScope(tv);
+	foreach(name, var; outer.variables)
+	{
+		stat.inside.variables[name] = var;
+	}
+	return stat;
+}
+
+Statement ParseWhile(TokenVomiter tv, Scope outer)
+{
+	Statement stat = new Statement();
+	tv.expect(KEYWORD.WHILE);
+	stat.type = StatementType.CONDITIONAL;
+	stat.rvalue = GetNumber(tv);
+	stat.loop = true;
+	tv.expect(KEYWORD.DO);
+	stat.inside = GetScope(tv);
+	foreach(name, var; outer.variables)
+	{
+		stat.inside.variables[name] = var;
+	}
 	return stat;
 }
 
@@ -597,7 +634,10 @@ Scope GetScope(TokenVomiter tv)
 		switch(tok.type)
 		{
 			case KEYWORD.IF:
-				inside.statements ~= ParseIf(tv);
+				inside.statements ~= ParseIf(tv, inside);
+				break;
+			case KEYWORD.WHILE:
+				inside.statements ~= ParseWhile(tv, inside);
 				break;
 			case KEYWORD.LOCAL:
 				Variable var = ParseLocal(tv);
@@ -635,6 +675,10 @@ Function ParseFunction(TokenVomiter tv)
 	}
 	tv.expect(KEYWORD.RIGHTPAREN);
 	func.inside = GetScope(tv);
+	foreach(var; func.args)
+	{
+		func.inside.variables[var.name] = var;
+	}
 	return func;
 }
 
@@ -695,12 +739,7 @@ void Parse(TokenVomiter tv, string name)
 }
 static this()
 {
-	aliases = [
-		"byte": types.u8,
-		"char": types.s8,
-		"word": types.u16,
-		"int": types.s16
-	];
+
 }
 void main(string[] args)
 {
@@ -716,6 +755,8 @@ void main(string[] args)
 	Parse(tv,args[1]);
 	foreach(mod; modules)
 	{
-		Stage1Module(mod);
+		Gather(mod);
 	}
+	Generate();
 }
+
