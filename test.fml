@@ -19,15 +19,18 @@ function void main()
 	while 1 do
 		i = 0;
 		*cast(u8*)(0xF037) = 0x4;
-		while 7 > i do
+		while 8 > i do
 			*cast(u8*)(screen + (i<<5)) = bitmap[i];
 			*cast(u8*)(screen + 1 + (i<<5)) = bitmap[i];
 			i = i + 1;
 		end
 		
-		res = GetKey(1,1);
-		if res == 2 then
-			*cast(u8*)(screen + 0x100) = 0xff;
+		i = 0;
+		*cast(u8*)(0xF030) = 0x0;
+		while 8 > i do
+			*cast(u8*)(screen + (i<<5)) = bitmap[i];
+			*cast(u8*)(screen + 2 + (i<<5)) = bitmap[i];
+			i = i + 1;
 		end
 	end
 end

@@ -167,7 +167,8 @@ void Generate()
 	Emit(0x06);
 	foreach(node; nodes)
 	{
-		node = node.Optimize();
+		node = node.Optimize().Optimize();
+		node.SmartOptimize();
 		LabelFunction(cast(FunctionNode)node);
 		node.Generate(new Restriction());
 	}

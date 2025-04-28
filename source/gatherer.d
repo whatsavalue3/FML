@@ -26,11 +26,14 @@ class Restriction
 	}
 }
 
+string tabs = "";
+
 class Node
 {
 	Node[] inputs;
 	Node[] outputs;
 	bool printed = false;
+	bool deleteme = false;
 	
 	this()
 	{
@@ -40,7 +43,10 @@ class Node
 	void AddInput(Node other)
 	{
 		this.inputs ~= other;
-		other.outputs ~= this;
+		if(countUntil(other.outputs,this) == -1)
+		{
+			other.outputs ~= this;
+		}
 	}
 	
 	bool Unused()
@@ -50,13 +56,7 @@ class Node
 	
 	override string toString()
 	{
-		if(this.printed)
-		{
-			return "@";
-		}
-		this.printed = true;
-		string ret = "inputs:"~to!string(inputs);
-		return ret;
+		return "@";
 	}
 	
 	void Generate()
@@ -64,26 +64,171 @@ class Node
 	
 	}
 	
+	bool Reads(Node node)
+	{
+		return false;
+	}
+	
+	bool Writes(Node node)
+	{
+		return false;
+	}
+	
+	bool Modifies(Node node)
+	{
+		return false;
+	}
+	
+	Node GetModifier()
+	{
+		return null;
+	}
+	
 	void Generate(Restriction res)
 	{
 		throw new Exception("tried to generate a restricted Node " ~ to!string(typeid(this)));
 	}
 	
+	bool OptimizeOutputs()
+	{
+		if(this.Unused())
+		{
+			return false;
+		}
+		foreach(i, outputA; this.outputs)
+		{
+			foreach(j, outputB; this.outputs)
+			{
+				if(i == j)
+				{
+					continue;
+				}
+				if(outputA.EquivalentTo(outputB))
+				{
+					writeln("MERGING ", typeid(outputA), " ", typeid(outputB));
+					outputA.Merge(outputB);
+					this.outputs = this.outputs.remove(j);
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
+	
+	
 	Node Optimize()
 	{
+		if(deleteme)
+		{
+			writeln(typeid(this));
+			throw new Exception("why");
+			return this;
+		}
 		foreach(i, input; inputs)
 		{
-			writeln(input);
-			Node[] outputs = input.outputs;
 			Node newnode = input.Optimize();
-			foreach(o; outputs)
+			if(newnode != input)
 			{
-				o.inputs[countUntil(o.inputs,input)] = newnode;
-				newnode.outputs ~= o;
+				newnode.Steal(input);
+//				inputs[i] = newnode;
 			}
-			inputs[i] = newnode;
+		}
+		while(OptimizeOutputs())
+		{
+		
 		}
 		return this;
+	}
+	
+	void SmartOptimize()
+	{
+		if(deleteme)
+		{
+			throw new Exception("why");
+			return;
+		}
+		foreach(input; inputs)
+		{
+			writeln(tabs,input, cast(void*)input);
+			tabs ~= "    ";
+			input.SmartOptimize();
+			tabs.length -= 4;
+			if(deleteme)
+			{
+				throw new Exception("why");
+				return;
+			}
+		}
+	}
+	
+	void Merge(Node other)
+	{
+		foreach(otherout; other.outputs)
+		{
+			foreach(i, otheroutin; otherout.inputs)
+			{
+				if(otheroutin == other)
+				{
+					otherout.inputs[i] = this;
+				}
+			}
+			if(countUntil(this.outputs, otherout) == -1)
+			{
+				this.outputs ~= otherout;
+			}
+		}
+		
+		foreach(otherin; other.inputs)
+		{
+			foreach(i, otherinout; otherin.outputs)
+			{
+				if(otherinout == other)
+				{
+					otherin.outputs[i] = this;
+				}
+			}
+		}
+		
+		//
+		other.destroy();
+	}
+	
+	void Steal(Node oldnode)
+	{
+		Node[] oldoutputs = oldnode.outputs;
+		Node[] oldinputs = oldnode.inputs;
+		foreach(o; oldoutputs)
+		{
+			foreach(j, elem; o.inputs)
+			{
+				if(elem == oldnode)
+				{
+					o.inputs[j] = this;
+					writeln(oldnode, " wha ", o);
+				}
+			}
+		}
+		
+		foreach(oi; oldinputs)
+		{
+			foreach_reverse(j, elem; oi.outputs)
+			{
+				if(elem == oldnode)
+				{
+					oi.outputs = oi.outputs.remove(j);
+					//oi.outputs[j] = this;
+				}
+			}
+		}
+		
+		this.outputs = oldoutputs;
+		oldnode.destroy();
+	}
+	
+	bool EquivalentTo(Node other)
+	{
+		return this == other;
 	}
 	
 	Type GetType()
@@ -270,11 +415,6 @@ class ArrayVariableNode : Node
 		this.var = var;
 		globalarrays[this.var.name] = this;
 	}
-	
-	override Node Optimize()
-	{
-		return this;
-	}
 }
 
 class CallNode : Node
@@ -367,6 +507,12 @@ class ReferenceNode : Node
 		return "Ref " ~ super.toString();
 	}
 	
+	override void AddInput(Node other)
+	{
+		this.inputs ~= other;
+		other.outputs ~= this;
+	}
+	
 	override void Generate()
 	{
 		writeln("Ref ", (cast(VariableNode)inputs[0]).name);
@@ -374,6 +520,7 @@ class ReferenceNode : Node
 	
 	override void Generate(Restriction res)
 	{
+		writeln(this.inputs[0],this.outputs);
 		if(res.ResultContains(this.inputs[0]))
 		{
 			return;
@@ -412,10 +559,74 @@ class ReferenceNode : Node
 		super.Optimize();
 		if(cast(ConstantNode)this.inputs[0])
 		{
-			//return FindConstant((cast(ConstantNode)this.inputs[0]).val, (cast(ConstantNode)this.inputs[0]).type);
 			return this.inputs[0];
 		}
 		return this;
+	}
+	
+	override void SmartOptimize()
+	{
+		Node[] readers;
+		Node[] modifiers;
+		foreach(output; outputs)
+		{
+			if(output.Modifies(this))
+			{
+				modifiers ~= output.GetModifier();
+			}
+			else if(output.Reads(this) && countUntil(modifiers,output) == -1)
+			{
+				readers ~= output;
+			}
+		}
+		
+		bool justadds = true;
+		foreach(modifier; modifiers)
+		{
+			if((cast(AddImmNode)modifier) is null)
+			{
+				justadds = false;
+				break;
+			}
+		}
+		
+		ubyte howMuchLeftShift = 0x10;
+		foreach(reader; readers)
+		{
+			if(cast(LshImmNode)reader)
+			{
+				howMuchLeftShift = min(howMuchLeftShift,(cast(LshImmNode)reader).val);
+			}
+			else if(cast(OperationImmNode)reader)
+			{
+				
+			}
+			else
+			{
+				howMuchLeftShift = 0;
+				break;
+			}
+		}
+		writeln(readers);
+		//writeln(this.inputs[0], ": ", readers, " howMuchLeftShift ", howMuchLeftShift);
+		if(justadds && howMuchLeftShift)
+		{
+			foreach(modifier; modifiers)
+			{
+				(cast(AddImmNode)modifier).val <<= howMuchLeftShift;
+			}
+			foreach(reader; readers)
+			{
+				if(cast(LshImmNode)reader)
+				{
+					this.Steal(reader);
+				}
+				else
+				{
+					(cast(OperationImmNode)reader).val <<= howMuchLeftShift;
+				}
+			}
+		}
 	}
 }
 
@@ -519,8 +730,24 @@ class AddImmNode : Node
 	ubyte val;
 	this(Node a, ubyte val)
 	{
+		writeln("AddImmNode adds ", a, cast(void*)a);
 		this.AddInput(a);
 		this.val = val;
+	}
+	
+	override bool Reads(Node n)
+	{
+		return this.inputs[0] == n;
+	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		AddImmNode other = cast(AddImmNode)(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.val == this.val && other.inputs[0] == this.inputs[0];
 	}
 	
 	override string toString()
@@ -545,6 +772,21 @@ class LshImmNode : Node
 		this.val = val;
 	}
 	
+	override bool Reads(Node n)
+	{
+		return this.inputs[0] == n;
+	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		LshImmNode other = cast(LshImmNode)(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.val == this.val && other.inputs[0].EquivalentTo(this.inputs[0]);
+	}
+	
 	override string toString()
 	{
 		return "LshImmNode " ~ super.toString();
@@ -556,6 +798,54 @@ class LshImmNode : Node
 		Emit(0x900B | cast(ushort)((res.result_register+1)<<8) | cast(ushort)(this.val<<4));
 		Emit(0x900A | cast(ushort)(res.result_register<<8) | cast(ushort)(this.val<<4));
 		res.SetResult(this);
+	}
+}
+
+class OperationImmNode : Node
+{
+	ubyte val;
+	this(Node a, ubyte val)
+	{
+		this.AddInput(a);
+		this.val = val;
+	}
+	
+	override bool Reads(Node n)
+	{
+		return this.inputs[0] == n;
+	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		typeof(this) other = cast(typeof(this))(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.val == this.val && other.inputs[0].EquivalentTo(this.inputs[0]);
+	}
+	
+	override void Generate(Restriction res)
+	{
+		inputs[0].Generate(res);
+		Emit(0x7000 | cast(ushort)((res.result_register)<<8) | cast(ushort)(this.val));
+		res.SetResult(this);
+	}
+}
+
+class GreaterImmNode : OperationImmNode
+{
+	this(Node a, ubyte val)
+	{
+		super(a,val);
+	}
+}
+
+class LesserImmNode : OperationImmNode
+{
+	this(Node a, ubyte val)
+	{
+		super(a,val);
 	}
 }
 
@@ -572,7 +862,22 @@ class BinaryNode : Node
 	
 	override string toString()
 	{
-		return "Binary " ~ super.toString();
+		return "Binary " ~ to!string(type) ~ " " ~ super.toString();
+	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		BinaryNode other = cast(BinaryNode)(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.type == this.type && other.inputs[1].EquivalentTo(this.inputs[1]) && other.inputs[0].EquivalentTo(this.inputs[0]);
+	}
+	
+	override bool Reads(Node n)
+	{
+		return n.EquivalentTo(this.inputs[0]) || n.EquivalentTo(this.inputs[1]);
 	}
 	
 	override void Generate(Restriction res)
@@ -635,6 +940,10 @@ class BinaryNode : Node
 			{
 				return new AddImmNode(this.inputs[1],cast(ubyte)a&0x7f);
 			}
+			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
+			{
+				return new GreaterImmNode(this.inputs[1],cast(ubyte)a&0xff);
+			}
 		}
 		else if((cast(ConstantNode)this.inputs[1]))
 		{
@@ -646,6 +955,10 @@ class BinaryNode : Node
 			if(this.type == BinaryOperationType.LEFTSHIFT && (a < 0x10))
 			{
 				return new LshImmNode(this.inputs[0],cast(ubyte)a&0xf);
+			}
+			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
+			{
+				return new LesserImmNode(this.inputs[0],cast(ubyte)a&0xff);
 			}
 		}
 		return this;
@@ -692,6 +1005,17 @@ class ConditionNode : Node
 		this.AddInput(b);
 		this.loop = loop;
 	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		ConditionNode other = cast(ConditionNode)(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.conditiontype == this.conditiontype && other.loop == this.loop && other.inputs[0].EquivalentTo(this.inputs[0]) && other.inputs[1].EquivalentTo(this.inputs[1]);
+	}
+	
 	
 	override string toString()
 	{
@@ -742,6 +1066,14 @@ class ConditionNode : Node
 				this.conditiontype = 0xC100;
 			}
 		}
+		else if((cast(GreaterImmNode)this.inputs[0]))
+		{
+			this.conditiontype = 0xC000;
+		}
+		else if((cast(LesserImmNode)this.inputs[0]))
+		{
+			this.conditiontype = 0xC100;
+		}
 		return this;
 	}
 }
@@ -756,7 +1088,37 @@ class AssignNode : Node
 	
 	override string toString()
 	{
-		return "Assign " ~ super.toString();
+		return "Assign " ~ to!string(this.inputs[0]) ~ " = " ~ to!string(this.inputs[1]);
+	}
+	
+	override bool Reads(Node n)
+	{
+		return n.EquivalentTo(this.inputs[1]);
+	}
+	
+	override bool Writes(Node n)
+	{
+		return n.EquivalentTo(this.inputs[0]);
+	}
+	
+	override bool Modifies(Node n)
+	{
+		return n.EquivalentTo(this.inputs[0]) && this.inputs[1].inputs.length == 1 && this.inputs[1].Reads(n);
+	}
+	
+	override Node GetModifier()
+	{
+		return this.inputs[1];
+	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		AssignNode other = cast(AssignNode)(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.inputs[1].EquivalentTo(this.inputs[1]) && other.inputs[0].EquivalentTo(this.inputs[0]);
 	}
 	
 	override void Generate(Restriction res)
@@ -820,6 +1182,11 @@ class ArrayAccessNode : Node
 		this.AddInput(b);
 	}
 	
+	override bool Reads(Node n)
+	{
+		return n.EquivalentTo(this.inputs[1]);
+	}
+	
 	override void Generate(Restriction res)
 	{
 		ArrayVariableNode avn = cast(ArrayVariableNode)inputs[0];
@@ -880,6 +1247,15 @@ VariableNode FindVariable(string name, Node defaultval, Type type)
 	return new VariableNode(name, defaultval, type);
 }
 
+ReferenceNode FindReference(VariableNode var)
+{
+	if(var.outputs.length > 2)
+	{
+		return cast(ReferenceNode)var.outputs[2];
+	}
+	return new ReferenceNode(var);
+}
+
 ArrayVariableNode FindArrayVariable(string name, Variable var)
 {
 	foreach(n, a; globalarrays)
@@ -917,7 +1293,7 @@ Node GatherNumber(Number num)
 	}
 	else if(num.type == NumberType.VARIABLE)
 	{
-		numnode = new ReferenceNode(FindVariable(num.var, null, types.voidtype));
+		numnode = FindReference(FindVariable(num.var, null, types.voidtype));
 	}
 	else if(num.type == NumberType.ARRAYACCESS)
 	{
