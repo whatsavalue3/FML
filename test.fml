@@ -8,21 +8,26 @@ local u16 j = 0;
 
 local const u8 bitmap[8] = [0x7f,0xc1,0x81,0x81,0x81,0x81,0x83,0xfe];
 
+function u8 GetKey(u8 x, u8 y)
+	*ki = 1<<x;
+	return ((*ko) & (1<<y));
+end
+
+local u8 res = 0;
+
 function void main()
 	while 1 do
 		i = 0;
 		*cast(u8*)(0xF037) = 0x4;
-		while 8 > i do
+		while 7 > i do
 			*cast(u8*)(screen + (i<<5)) = bitmap[i];
 			*cast(u8*)(screen + 1 + (i<<5)) = bitmap[i];
 			i = i + 1;
 		end
-		i = 0;
-		*cast(u8*)(0xF037) = 0x0;
-		while 8 > i do
-			*cast(u8*)(screen + (i<<5)) = bitmap[i];
-			*cast(u8*)(screen + 2 + (i<<5)) = bitmap[i];
-			i = i + 1;
+		
+		res = GetKey(1,1);
+		if res == 2 then
+			*cast(u8*)(screen + 0x100) = 0xff;
 		end
 	end
 end

@@ -15,6 +15,11 @@ class Restriction
 		this.register_contain[this.result_register>>1] = n;
 	}
 	
+	void SetRegister(ubyte reg, Node n)
+	{
+		this.register_contain[reg] = n;
+	}
+	
 	bool ResultContains(Node n)
 	{
 		return this.register_contain[this.result_register>>1] == n;
@@ -61,7 +66,7 @@ class Node
 	
 	void Generate(Restriction res)
 	{
-		throw new Exception("tried to generate a restricted Node");
+		throw new Exception("tried to generate a restricted Node " ~ to!string(typeid(this)));
 	}
 	
 	Node Optimize()
@@ -112,12 +117,12 @@ class FunctionNode : Node
 	
 	override void Generate(Restriction res)
 	{
-		writeln("Begin Function ", this.name);
-		foreach(input; inputs)
+		foreach(i, arg; inputs[1..$])
 		{
-			input.Generate(res);
+			res.SetRegister(cast(ubyte)i,arg);
 		}
-		writeln("End Function ", this.name);
+		res.result_register = cast(ubyte)((inputs.length-1)<<1);
+		inputs[0].Generate(res);
 	}
 }
 
@@ -220,7 +225,10 @@ class VariableNode : Node
 		this.name = name;
 		this.type = type;
 		scopestack[$-1].AddInput(this);
-		this.AddInput(value);
+		if(value !is null)
+		{
+			this.AddInput(value);
+		}
 	}
 	
 	override string toString()
@@ -233,10 +241,15 @@ class VariableNode : Node
 		writeln("Variable " ~ name);
 	}
 	
+	override void Generate(Restriction res)
+	{
+		writeln("piss");
+	}
+	
 	override Node Optimize()
 	{
 		super.Optimize();
-		if(cast(ConstantNode)this.inputs[0] && this.type.isconst)
+		if(this.inputs.length != 0 && cast(ConstantNode)this.inputs[0] && this.type.isconst)
 		{
 			globalvariables.remove(this);
 			return FindConstant((cast(ConstantNode)this.inputs[0]).val,this.type);
@@ -293,6 +306,7 @@ class CallNode : Node
 			Emit(0xF005 | (result<<8));
 		}
 		writeln("End Call ", (cast(FunctionNode)this.inputs[0]).name);
+		res.result_register = result;
 	}
 }
 
@@ -363,6 +377,30 @@ class ReferenceNode : Node
 		if(res.ResultContains(this.inputs[0]))
 		{
 			return;
+		}
+		foreach(i, thing; res.register_contain)
+		{
+			if(thing == this.inputs[0])
+			{
+				//ubyte size = (cast(VariableNode)this.inputs[0]).type.size;
+				res.result_register = cast(ubyte)(i<<1);
+				/*
+				if(size == 8)
+				{
+					Emit(cast(ushort)(0x8000 | (res.result_register << 8) | (i << 5)));
+				}
+				else if(size == 16)
+				{
+					Emit(cast(ushort)(0xF005 | (res.result_register << 8) | (i << 5)));
+				}
+				else
+				{
+					throw new Exception("poo.  cant emit dereference of a variable of size " ~ to!string(size));
+				}
+				*/
+				res.SetResult(this.inputs[0]);
+				return;
+			}
 		}
 		Emit(cast(ushort)(0x9012 | (res.result_register<<8)));
 		LinkVariable(cast(VariableNode)this.inputs[0]);
@@ -540,10 +578,11 @@ class BinaryNode : Node
 	override void Generate(Restriction res)
 	{
 		writeln("Begin Binary ", this.type);
+		ubyte orig = res.result_register;
 		inputs[0].Generate(res);
 		res.result_register += 2;
 		inputs[1].Generate(res);
-		res.result_register -= 2;
+		res.result_register = orig;
 		if(this.type == BinaryOperationType.ADD)
 		{
 			Emit(0xF006 | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register + 2)<<4));
@@ -552,9 +591,22 @@ class BinaryNode : Node
 		{
 			Emit(0xF007 | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register + 2)<<4));
 		}
+		else if(this.type == BinaryOperationType.NOTEQUAL)
+		{
+			Emit(0xF007 | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register + 2)<<4));
+		}
 		else if(this.type == BinaryOperationType.GREATER)
 		{
 			Emit(0xF007 | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register + 2)<<4));
+		}
+		else if(this.type == BinaryOperationType.LEFTSHIFT)
+		{
+			Emit(0x800B | cast(ushort)((res.result_register+1)<<8) | cast(ushort)((res.result_register + 2)<<4));
+			Emit(0x800A | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register + 2)<<4));
+		}
+		else if(this.type == BinaryOperationType.AND)
+		{
+			Emit(0x8002 | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register + 2)<<4));
 		}
 		else
 		{
@@ -711,12 +763,11 @@ class AssignNode : Node
 	{
 		writeln("Begin Assign");
 		//Restriction res = new Restriction();
-		res.result_register = 0;
 		//inputs[0].Generate();
 		if(cast(DerefImmNode)inputs[0])
 		{
 			inputs[1].Generate(res);
-			Emit(cast(ushort)(0x9013));
+			Emit(cast(ushort)(0x9013 | (res.result_register<<8)));
 			Emit((cast(ConstantNode)inputs[0].inputs[0]).val);
 		}
 		else if(cast(UnaryNode)inputs[0])
@@ -724,16 +775,18 @@ class AssignNode : Node
 			if((cast(UnaryNode)inputs[0]).type == UnaryOperationType.DEREF)
 			{
 				inputs[0].inputs[0].Generate(res);
+				ubyte innie = res.result_register;
 				res.result_register += 2;
 				inputs[1].Generate(res);
+				ubyte outie = res.result_register;
 				
 				if(inputs[0].GetType().size == 16)
 				{
-					Emit(cast(ushort)(0x9203));
+					Emit(cast(ushort)(0x9003 | (outie << 8) | (innie << 4)));
 				}
 				else if(inputs[0].GetType().size == 8)
 				{
-					Emit(cast(ushort)(0x9201));
+					Emit(cast(ushort)(0x9001 | (outie << 8) | (innie << 4)));
 				}
 				else
 				{
@@ -748,7 +801,7 @@ class AssignNode : Node
 		else if(cast(ReferenceNode)inputs[0])
 		{
 			inputs[1].Generate(res);
-			Emit(cast(ushort)(0x9013));
+			Emit(cast(ushort)(0x9013 | (res.result_register<<8)));
 			LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
 		}
 		else
@@ -845,6 +898,10 @@ Node GatherNumber(Number num)
 	if(num.type == NumberType.CALL)
 	{
 		numnode = new CallNode(FindFunction(num.var));
+		foreach(arg; num.args)
+		{
+			numnode.AddInput(GatherNumber(arg));
+		}
 	}
 	else if(num.type == NumberType.IMMEDIATE)
 	{
@@ -902,7 +959,15 @@ ScopeNode CreateScope(Scope inside)
 	ScopeNode scopenode = new ScopeNode();
 	foreach(var; inside.variables)
 	{
-		FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+		writeln(var.name);
+		if(var.defaultval is null)
+		{
+			FindVariable(var.name, null, var.type);
+		}
+		else
+		{
+			FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+		}
 	}
 	return scopenode;
 }
@@ -929,7 +994,7 @@ Node GatherFunction(Function func)
 	funcnode.AddInput(scopenode);
 	foreach(var; func.args)
 	{
-		FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+		funcnode.AddInput(FindVariable(var.name, null, var.type));
 	}
 	ExitScope(scopenode,func.inside);
 	return funcnode;

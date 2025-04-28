@@ -50,6 +50,8 @@ enum KEYWORD
 	LEFTSHIFT,
 	RIGHTSHIFTARITH,
 	RIGHTSHIFTLOGI,
+	BITAND,
+	NOTEQUAL,
 }
 
 enum StatementType
@@ -177,6 +179,7 @@ KEYWORD[string] stringToToken = [
 	")":KEYWORD.RIGHTPAREN,
 	"*":KEYWORD.STAR,
 	"=":KEYWORD.EQUAL,
+	"!=":KEYWORD.NOTEQUAL,
 	";":KEYWORD.SEMICOLON,
 	"+":KEYWORD.PLUS,
 	",":KEYWORD.COMMA,
@@ -184,6 +187,7 @@ KEYWORD[string] stringToToken = [
 	">":KEYWORD.GREATER,
 	"[":KEYWORD.LEFTBRACKET,
 	"]":KEYWORD.RIGHTBRACKET,
+	"&":KEYWORD.BITAND,
 ];
 
 uint linecount = 0;
@@ -427,7 +431,10 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 {
 	GetNumberUnary(tv,num);
 	
-	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER) || tv.check(KEYWORD.DOUBLEEQUAL) || tv.check(KEYWORD.LEFTSHIFT))
+	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER) || tv.check(KEYWORD.DOUBLEEQUAL) || tv.check(KEYWORD.LEFTSHIFT)
+	 || tv.check(KEYWORD.BITAND)
+	 || tv.check(KEYWORD.NOTEQUAL)
+	 )
 	{
 		Token operator = tv.next();
 		Number newnum = new Number();
@@ -449,6 +456,12 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.LEFTSHIFT:
 				newnum.binary_op.type = BinaryOperationType.LEFTSHIFT;
+				break;
+			case KEYWORD.BITAND:
+				newnum.binary_op.type = BinaryOperationType.AND;
+				break;
+			case KEYWORD.NOTEQUAL:
+				newnum.binary_op.type = BinaryOperationType.NOTEQUAL;
 				break;
 			default:
 				throw new Exception("Unknown operator");
