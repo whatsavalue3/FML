@@ -50,6 +50,20 @@ class L_VarLink : Linkable
 	}
 }
 
+class L_ArrayVarLink : Linkable
+{
+	ArrayVariableNode var;
+	this(ArrayVariableNode var)
+	{
+		this.var = var;
+	}
+	
+	ushort Get()
+	{
+		return cast(ushort)(arrayIndex[this.var]<<1);
+	}
+}
+
 class L_FuncOffsetLink : Linkable
 {
 	ulong label;
@@ -73,6 +87,7 @@ Linkable[] emitted;
 Linkable[] emittedram;
 ulong[FunctionNode] functionIndex;
 ulong[VariableNode] varIndex;
+ulong[ArrayVariableNode] arrayIndex;
 ulong[ulong] labelIndex;
 
 
@@ -92,6 +107,11 @@ void LinkVariable(VariableNode func)
 	emitted ~= new L_VarLink(func);
 }
 
+void LinkArrayVariable(ArrayVariableNode func)
+{
+	emitted ~= new L_ArrayVarLink(func);
+}
+
 void LinkLabelOffset(ushort val, ulong label)
 {
 	emitted ~= new L_FuncOffsetLink(val,emitted.length,label);
@@ -106,6 +126,33 @@ void LabelVariable(VariableNode var)
 {
 	varIndex[var] = emittedram.length+0x4800;
 	emittedram ~= new L_Imm(cast(ushort)(emittedram.length+0x4800));
+}
+
+void LabelArrayVariable(ArrayVariableNode var)
+{
+	arrayIndex[var] = emitted.length;
+	if(var.var.type.size == 8)
+	{
+		ushort p = 0;
+		bool parity = false;
+		foreach(value; var.var.defaultelements)
+		{
+			p >>= 8;
+			p |= value<<8;
+			if(parity)
+			{
+				emitted ~= new L_Imm(p);
+			}
+			parity = !parity;
+		}
+	}
+	else if(var.var.type.size == 16)
+	{
+		foreach(value; var.var.defaultelements)
+		{
+			emitted ~= new L_Imm(value);
+		}
+	}
 }
 
 void Label(ulong label)
@@ -132,6 +179,11 @@ void Generate()
 		}
 		writeln(variable, ": ", variable.type);
 		LabelVariable(variable);
+	}
+	
+	foreach(node, var; globalarrays)
+	{
+		LabelArrayVariable(var);
 	}
 	
 	writeln(emitted);

@@ -80,6 +80,11 @@ class Node
 		}
 		return this;
 	}
+	
+	Type GetType()
+	{
+		throw new Exception("fuck yuo");
+	}
 }
 
 class FunctionNode : Node
@@ -203,6 +208,7 @@ class ScopeNode : Node
 }
 
 Type[VariableNode] globalvariables; // fuck this shit
+ArrayVariableNode[string] globalarrays;
 
 class VariableNode : Node
 {
@@ -239,6 +245,21 @@ class VariableNode : Node
 		{
 			globalvariables[this] = this.type;
 		}
+		return this;
+	}
+}
+
+class ArrayVariableNode : Node
+{
+	Variable var;
+	this(Variable var)
+	{
+		this.var = var;
+		globalarrays[this.var.name] = this;
+	}
+	
+	override Node Optimize()
+	{
 		return this;
 	}
 }
@@ -382,10 +403,13 @@ class DerefVariableNode : Node
 class UnaryNode : Node
 {
 	UnaryOperationType type;
-	this(Node node, UnaryOperationType type)
+	Type castto;
+	
+	this(Node node, UnaryOperationType type, Type castto)
 	{
 		this.AddInput(node);
 		this.type = type;
+		this.castto = castto;
 	}
 	
 	override string toString()
@@ -410,6 +434,10 @@ class UnaryNode : Node
 		{
 			Emit(cast(ushort)(0x9002 | (res.result_register << 4) | (res.result_register << 8)));
 		}
+		else if(this.type == UnaryOperationType.CAST)
+		{
+			//Emit(cast(ushort)(0x9002 | (res.result_register << 4) | (res.result_register << 8)));
+		}
 		else
 		{
 			throw new Exception("idk what to do with " ~ to!string(this.type));
@@ -428,6 +456,23 @@ class UnaryNode : Node
 			return new DerefImmNode(cast(ConstantNode)this.inputs[0]);
 		}
 		return this;
+	}
+	
+	override Type GetType()
+	{
+		if(this.type == UnaryOperationType.CAST)
+		{
+			return this.castto;
+		}
+		Type innertype = inputs[0].GetType();
+		if(this.type == UnaryOperationType.DEREF)
+		{
+			if(innertype.ptrdepth != 0)
+			{
+				innertype.ptrdepth--;
+			}
+		}
+		return innertype;
 	}
 }
 
@@ -449,6 +494,29 @@ class AddImmNode : Node
 	{
 		inputs[0].Generate(res);
 		Emit(cast(ushort)(0xE080 | this.val | (res.result_register<<8)));
+		res.SetResult(this);
+	}
+}
+
+class LshImmNode : Node
+{
+	ubyte val;
+	this(Node a, ubyte val)
+	{
+		this.AddInput(a);
+		this.val = val;
+	}
+	
+	override string toString()
+	{
+		return "LshImmNode " ~ super.toString();
+	}
+	
+	override void Generate(Restriction res)
+	{
+		inputs[0].Generate(res);
+		Emit(0x900B | cast(ushort)((res.result_register+1)<<8) | cast(ushort)(this.val<<4));
+		Emit(0x900A | cast(ushort)(res.result_register<<8) | cast(ushort)(this.val<<4));
 		res.SetResult(this);
 	}
 }
@@ -522,6 +590,10 @@ class BinaryNode : Node
 			if(this.type == BinaryOperationType.ADD && (a < 0x40 || a > 0xffc0))
 			{
 				return new AddImmNode(this.inputs[0],cast(ubyte)a&0x7f);
+			}
+			if(this.type == BinaryOperationType.LEFTSHIFT && (a < 0x10))
+			{
+				return new LshImmNode(this.inputs[0],cast(ubyte)a&0xf);
 			}
 		}
 		return this;
@@ -652,9 +724,21 @@ class AssignNode : Node
 			if((cast(UnaryNode)inputs[0]).type == UnaryOperationType.DEREF)
 			{
 				inputs[0].inputs[0].Generate(res);
-				res.result_register = 2;
+				res.result_register += 2;
 				inputs[1].Generate(res);
-				Emit(cast(ushort)(0x9203));
+				
+				if(inputs[0].GetType().size == 16)
+				{
+					Emit(cast(ushort)(0x9203));
+				}
+				else if(inputs[0].GetType().size == 8)
+				{
+					Emit(cast(ushort)(0x9201));
+				}
+				else
+				{
+					throw new Exception("i HAVE to shoot myself... ");
+				}
 			}
 			else
 			{
@@ -672,6 +756,31 @@ class AssignNode : Node
 			throw new Exception("idfk how to emit this im paid too little " ~ to!string(inputs[0]));
 		}
 		writeln("End Assign");
+	}
+}
+
+class ArrayAccessNode : Node
+{
+	this(Node a, Node b)
+	{
+		this.AddInput(a);
+		this.AddInput(b);
+	}
+	
+	override void Generate(Restriction res)
+	{
+		ArrayVariableNode avn = cast(ArrayVariableNode)inputs[0];
+		inputs[1].Generate(res);
+		if(avn.var.type.size == 8)
+		{
+			Emit(cast(ushort)(0x9008 | (res.result_register << 8) | (res.result_register << 4)));
+		}
+		else
+		{
+			throw new Exception("avn.var.type.size = " ~ to!string(avn.var.type.size));
+		}
+		LinkArrayVariable(avn);
+		res.SetResult(this);
 	}
 }
 
@@ -718,6 +827,18 @@ VariableNode FindVariable(string name, Node defaultval, Type type)
 	return new VariableNode(name, defaultval, type);
 }
 
+ArrayVariableNode FindArrayVariable(string name, Variable var)
+{
+	foreach(n, a; globalarrays)
+	{
+		if(n == name)
+		{
+			return a;
+		}
+	}
+	return new ArrayVariableNode(var);
+}
+
 Node GatherNumber(Number num)
 {
 	Node numnode = null;
@@ -735,11 +856,15 @@ Node GatherNumber(Number num)
 	}
 	else if(num.type == NumberType.UNARY_OPERATION)
 	{
-		numnode = new UnaryNode(GatherNumber(num.unary_op.val),num.unary_op.type);
+		numnode = new UnaryNode(GatherNumber(num.unary_op.val),num.unary_op.type,num.unary_op.castto);
 	}
 	else if(num.type == NumberType.VARIABLE)
 	{
 		numnode = new ReferenceNode(FindVariable(num.var, null, types.voidtype));
+	}
+	else if(num.type == NumberType.ARRAYACCESS)
+	{
+		numnode = new ArrayAccessNode(FindArrayVariable(num.var,null),GatherNumber(num.args[0]));
 	}
 	else
 	{
@@ -816,7 +941,14 @@ void Gather(Module mod)
 	ScopeNode modulescopenode = new ScopeNode();
 	foreach(var; mod.variables)
 	{
-		FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+		if(var.elements != 0)
+		{
+			FindArrayVariable(var.name,var);
+		}
+		else
+		{
+			FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+		}
 	}
 	foreach(func; mod.functions)
 	{

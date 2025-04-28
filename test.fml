@@ -1,23 +1,28 @@
-local const u16* screen = 0xf800;
+local const u8* screen = 0xf800;
 
-local const u8* input = 0xf046;
-
-local const u16 theb = 0xb;
-
-function u16 Getthing()
-	return (*screen) + 0xff90 + theb;
-end
+local const u8* ki = 0xf046;
+local const u8* ko = 0xf040;
 
 local u16 i = 0;
 local u16 j = 0;
 
+local const u8 bitmap[8] = [0x7f,0xc1,0x81,0x81,0x81,0x81,0x83,0xfe];
+
 function void main()
 	while 1 do
 		i = 0;
-		while 0x7fe > i do
-			*(screen + i) = j;
+		*cast(u8*)(0xF037) = 0x4;
+		while 8 > i do
+			*cast(u8*)(screen + (i<<5)) = bitmap[i];
+			*cast(u8*)(screen + 1 + (i<<5)) = bitmap[i];
 			i = i + 1;
-			j = j + 1;
+		end
+		i = 0;
+		*cast(u8*)(0xF037) = 0x0;
+		while 8 > i do
+			*cast(u8*)(screen + (i<<5)) = bitmap[i];
+			*cast(u8*)(screen + 2 + (i<<5)) = bitmap[i];
+			i = i + 1;
 		end
 	end
 end

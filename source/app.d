@@ -33,6 +33,7 @@ enum KEYWORD
 	CONST,
 	WHILE,
 	DO,
+	CAST,
 	
 	LEFTPAREN,
 	RIGHTPAREN,
@@ -43,7 +44,12 @@ enum KEYWORD
 	COMMA,
 	MINUS,
 	GREATER,
-	DOUBLEEQUAL
+	DOUBLEEQUAL,
+	LEFTBRACKET,
+	RIGHTBRACKET,
+	LEFTSHIFT,
+	RIGHTSHIFTARITH,
+	RIGHTSHIFTLOGI,
 }
 
 enum StatementType
@@ -90,6 +96,8 @@ class Variable
 	string name;
 	Type type;
 	Number defaultval;
+	ushort elements = 0;
+	ushort[] defaultelements;
 }
 
 class Scope
@@ -136,7 +144,9 @@ Token[] tokens;
 
 KEYWORD[string] firstStringToToken = 
 [
-	"==":KEYWORD.DOUBLEEQUAL
+	"==":KEYWORD.DOUBLEEQUAL,
+	"<<":KEYWORD.LEFTSHIFT,
+	">>":KEYWORD.RIGHTSHIFTARITH,
 ];
 
 KEYWORD[string] stringToToken = [
@@ -157,6 +167,7 @@ KEYWORD[string] stringToToken = [
 	"const":KEYWORD.CONST,
 	"while":KEYWORD.WHILE,
 	"do":KEYWORD.DO,
+	"cast":KEYWORD.CAST,
 	"if":KEYWORD.IF,
 	" ":KEYWORD.SKIP,
 	"\n":KEYWORD.SKIP,
@@ -171,6 +182,8 @@ KEYWORD[string] stringToToken = [
 	",":KEYWORD.COMMA,
 	"-":KEYWORD.MINUS,
 	">":KEYWORD.GREATER,
+	"[":KEYWORD.LEFTBRACKET,
+	"]":KEYWORD.RIGHTBRACKET,
 ];
 
 uint linecount = 0;
@@ -334,13 +347,15 @@ enum UnaryOperationType
 	NEGATE,
 	NOT,
 	DEREF,
-	REF
+	REF,
+	CAST
 }
 
 class UnaryOperation
 {
 	UnaryOperationType type;
 	Number val;
+	Type castto;
 }
 
 enum NumberType
@@ -349,7 +364,8 @@ enum NumberType
 	BINARY_OPERATION,
 	UNARY_OPERATION,
 	VARIABLE,
-	CALL
+	CALL,
+	ARRAYACCESS
 }
 
 class Number
@@ -371,15 +387,20 @@ class Number
 
 void GetNumberUnary(TokenVomiter tv, ref Number num)
 {
-	if(tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.STAR))
+	if(tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.STAR) || tv.check(KEYWORD.CAST))
 	{
 		Token operator = tv.next();
-		Number newnum;
-		GetNumberUnary(tv,newnum);
 		num = new Number();
-		writeln(operator);
 		num.type = NumberType.UNARY_OPERATION;
 		num.unary_op = new UnaryOperation();
+		if(operator.type == KEYWORD.CAST)
+		{
+			tv.expect(KEYWORD.LEFTPAREN);
+			num.unary_op.castto = GetType(tv);
+			tv.expect(KEYWORD.RIGHTPAREN);
+		}
+		Number newnum;
+		GetNumberUnary(tv,newnum);
 		switch(operator.type)
 		{
 			case KEYWORD.MINUS:
@@ -387,6 +408,10 @@ void GetNumberUnary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.STAR:
 				num.unary_op.type = UnaryOperationType.DEREF;
+				break;
+			case KEYWORD.CAST:
+				num.unary_op.type = UnaryOperationType.CAST;
+				
 				break;
 			default:
 				throw new Exception("Unknown unary operation");
@@ -402,7 +427,7 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 {
 	GetNumberUnary(tv,num);
 	
-	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER) || tv.check(KEYWORD.DOUBLEEQUAL))
+	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER) || tv.check(KEYWORD.DOUBLEEQUAL) || tv.check(KEYWORD.LEFTSHIFT))
 	{
 		Token operator = tv.next();
 		Number newnum = new Number();
@@ -421,6 +446,9 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.DOUBLEEQUAL:
 				newnum.binary_op.type = BinaryOperationType.EQUAL;
+				break;
+			case KEYWORD.LEFTSHIFT:
+				newnum.binary_op.type = BinaryOperationType.LEFTSHIFT;
 				break;
 			default:
 				throw new Exception("Unknown operator");
@@ -477,6 +505,12 @@ void GetNumberImmediate(TokenVomiter tv, ref Number num)
 			{
 				tv.next();
 			}
+		}
+		if(tv.optional(KEYWORD.LEFTBRACKET))
+		{
+			num.type = NumberType.ARRAYACCESS;
+			num.args ~= GetNumber(tv);
+			tv.expect(KEYWORD.RIGHTBRACKET);
 		}
 		return;
 	}
@@ -688,7 +722,33 @@ Variable ParseLocal(TokenVomiter tv)
 	Variable var = new Variable();
 	var.type = GetType(tv);
 	var.name = tv.expect(KEYWORD.NAME).name;
-	if(tv.optional(KEYWORD.SEMICOLON))
+	if(tv.optional(KEYWORD.LEFTBRACKET))
+	{
+		var.type.ptrdepth++;
+		var.elements = CalculateNumber(GetNumber(tv));
+		tv.expect(KEYWORD.RIGHTBRACKET);
+		if(tv.optional(KEYWORD.SEMICOLON))
+		{
+			return var;
+		}
+		tv.expect(KEYWORD.EQUAL);
+		tv.expect(KEYWORD.LEFTBRACKET);
+		while(!tv.optional(KEYWORD.RIGHTBRACKET))
+		{
+			var.defaultelements ~= CalculateNumber(GetNumber(tv));
+			if(tv.optional(KEYWORD.COMMA))
+			{
+				continue;
+			}
+			tv.expect(KEYWORD.RIGHTBRACKET);
+			break;
+		}
+		
+		
+		tv.expect(KEYWORD.SEMICOLON);
+		return var;
+	}
+	else if(tv.optional(KEYWORD.SEMICOLON))
 	{
 		return var;
 	}
