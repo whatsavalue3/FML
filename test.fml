@@ -19,18 +19,18 @@ function void main()
 	while 1 do
 		i = 0;
 		*cast(u8*)(0xF037) = 0x4;
-		while 8 > i do
-			*cast(u8*)(screen + (i<<5)) = bitmap[i];
-			*cast(u8*)(screen + 1 + (i<<5)) = bitmap[i];
-			i = i + 1;
+		while 0x100 > i do
+			*cast(u8*)((screen + i)) = bitmap[i>>>5];
+			*cast(u8*)((screen + i) + 1) = bitmap[i>>>5];
+			i = i + 0x20;
 		end
 		
 		i = 0;
-		*cast(u8*)(0xF030) = 0x0;
-		while 8 > i do
-			*cast(u8*)(screen + (i<<5)) = bitmap[i];
-			*cast(u8*)(screen + 2 + (i<<5)) = bitmap[i];
-			i = i + 1;
+		*cast(u8*)(0xF037) = 0x0;
+		while 0x100 > i do
+			*cast(u8*)((screen + i)) = bitmap[i>>>5];
+			*cast(u8*)((screen + i) + 2) = bitmap[i>>>5];
+			i = i + 0x20;
 		end
 	end
 end

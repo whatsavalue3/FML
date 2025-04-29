@@ -144,6 +144,11 @@ Module[string] modules;
 
 Token[] tokens;
 
+KEYWORD[string] zerothStringToToken = 
+[
+	">>>":KEYWORD.RIGHTSHIFTLOGI
+];
+
 KEYWORD[string] firstStringToToken = 
 [
 	"==":KEYWORD.DOUBLEEQUAL,
@@ -217,6 +222,10 @@ void Tokenize(string code)
 	{
 		foreach(string kwStr, KEYWORD kw; stringToToken)
 		{
+			foreach(string kwStr, KEYWORD kw; zerothStringToToken)
+			{
+				code = TryToken(kwStr,code,kw,found);
+			}
 			foreach(string kwStr, KEYWORD kw; firstStringToToken)
 			{
 				code = TryToken(kwStr,code,kw,found);
@@ -434,6 +443,7 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 	while(tv.check(KEYWORD.PLUS) || tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.GREATER) || tv.check(KEYWORD.DOUBLEEQUAL) || tv.check(KEYWORD.LEFTSHIFT)
 	 || tv.check(KEYWORD.BITAND)
 	 || tv.check(KEYWORD.NOTEQUAL)
+	 || tv.check(KEYWORD.RIGHTSHIFTLOGI)
 	 )
 	{
 		Token operator = tv.next();
@@ -462,6 +472,9 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.NOTEQUAL:
 				newnum.binary_op.type = BinaryOperationType.NOTEQUAL;
+				break;
+			case KEYWORD.RIGHTSHIFTLOGI:
+				newnum.binary_op.type = BinaryOperationType.RIGHTSHIFTLOGI;
 				break;
 			default:
 				throw new Exception("Unknown operator");

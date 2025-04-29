@@ -56,7 +56,7 @@ class Node
 	
 	override string toString()
 	{
-		return "@";
+		return to!string(typeid(this));
 	}
 	
 	void Generate()
@@ -91,6 +91,11 @@ class Node
 	
 	bool OptimizeOutputs()
 	{
+		if(this.deleteme)
+		{
+			writeln(this);
+			throw new Exception("f");
+		}
 		if(this.Unused())
 		{
 			return false;
@@ -103,11 +108,24 @@ class Node
 				{
 					continue;
 				}
+				if(outputA.deleteme)
+				{
+					writeln(outputA,cast(void*)(outputA));
+					throw new Exception("fu");
+				}
+				if(outputB.deleteme)
+				{
+					throw new Exception("ck");
+				}
 				if(outputA.EquivalentTo(outputB))
 				{
-					writeln("MERGING ", typeid(outputA), " ", typeid(outputB));
-					outputA.Merge(outputB);
+					if(outputB == this)
+					{
+						throw new Exception("KILL ASFOI DJSgfi");
+					}
+					//writeln("MERGING ", typeid(outputA), " ", typeid(outputB));
 					this.outputs = this.outputs.remove(j);
+					outputA.Merge(outputB);
 					return true;
 				}
 			}
@@ -121,20 +139,24 @@ class Node
 	{
 		if(deleteme)
 		{
-			writeln(typeid(this));
+			writeln(typeid(this),cast(void*)this);
 			throw new Exception("why");
 			return this;
 		}
 		foreach(i, input; inputs)
 		{
 			Node newnode = input.Optimize();
+			if(this.deleteme)
+			{
+				return newnode;
+			}
 			if(newnode != input)
 			{
 				newnode.Steal(input);
 //				inputs[i] = newnode;
 			}
 		}
-		while(OptimizeOutputs())
+		while(this.OptimizeOutputs())
 		{
 		
 		}
@@ -164,6 +186,10 @@ class Node
 	
 	void Merge(Node other)
 	{
+		if(other == this)
+		{
+			throw new Exception("KILL");
+		}
 		foreach(otherout; other.outputs)
 		{
 			foreach(i, otheroutin; otherout.inputs)
@@ -181,21 +207,35 @@ class Node
 		
 		foreach(otherin; other.inputs)
 		{
-			foreach(i, otherinout; otherin.outputs)
+			foreach_reverse(i, otherinout; otherin.outputs)
 			{
 				if(otherinout == other)
 				{
-					otherin.outputs[i] = this;
+					if(countUntil(otherin.outputs, this) != -1)
+					{
+						otherin.outputs = otherin.outputs.remove(i);
+					}
+					else
+					{
+						otherin.outputs[i] = this;
+					}
 				}
 			}
 		}
 		
-		//
-		other.destroy();
+		other.deleteme = true;
+		
+		writeln("merging ", other, cast(void*)other, " and ", this, cast(void*)this);
+		
+		//other.destroy();
 	}
 	
 	void Steal(Node oldnode)
 	{
+		if(this == oldnode)
+		{
+			throw new Exception("KILL");
+		}
 		Node[] oldoutputs = oldnode.outputs;
 		Node[] oldinputs = oldnode.inputs;
 		foreach(o; oldoutputs)
@@ -223,7 +263,9 @@ class Node
 		}
 		
 		this.outputs = oldoutputs;
-		oldnode.destroy();
+		oldnode.deleteme = true;		
+		//writeln("stealing ", oldnode, cast(void*)oldnode);
+		//oldnode.destroy();
 	}
 	
 	bool EquivalentTo(Node other)
@@ -601,8 +643,13 @@ class ReferenceNode : Node
 			{
 				
 			}
+			else if(cast(ArrayAccessNode)reader)
+			{
+				
+			}
 			else
 			{
+				writeln("WHAT  TE ", reader);
 				howMuchLeftShift = 0;
 				break;
 			}
@@ -621,9 +668,15 @@ class ReferenceNode : Node
 				{
 					this.Steal(reader);
 				}
-				else
+				else if(cast(OperationImmNode)reader)
 				{
+					writeln("(cast(OperationImmNode)reader).val ", (cast(OperationImmNode)reader).val);
+					writeln("howMuchLeftShif t", howMuchLeftShift);
 					(cast(OperationImmNode)reader).val <<= howMuchLeftShift;
+				}
+				else if(cast(ArrayAccessNode)reader)
+				{
+					reader.inputs[1] = new RshImmNode(this,howMuchLeftShift);
 				}
 			}
 		}
@@ -674,6 +727,11 @@ class UnaryNode : Node
 			input.Generate();
 		}
 		writeln("End Unary ", type);
+	}
+	
+	override bool Reads(Node n)
+	{
+		return n.EquivalentTo(this.inputs[0]);
 	}
 	
 	override void Generate(Restriction res)
@@ -801,10 +859,44 @@ class LshImmNode : Node
 	}
 }
 
-class OperationImmNode : Node
+
+class RshImmNode : Node
 {
 	ubyte val;
 	this(Node a, ubyte val)
+	{
+		this.AddInput(a);
+		this.val = val;
+	}
+	
+	override bool Reads(Node n)
+	{
+		return this.inputs[0] == n;
+	}
+	
+	override bool EquivalentTo(Node n)
+	{
+		RshImmNode other = cast(RshImmNode)(n);
+		if(other is null)
+		{
+			return false;
+		}
+		return other.val == this.val && other.inputs[0].EquivalentTo(this.inputs[0]);
+	}
+	
+	override void Generate(Restriction res)
+	{
+		inputs[0].Generate(res);
+		Emit(0x900D | cast(ushort)(res.result_register<<8) | cast(ushort)(this.val<<4));
+		Emit(0x900C | cast(ushort)((res.result_register+1)<<8) | cast(ushort)(this.val<<4));
+		res.SetResult(this);
+	}
+}
+
+class OperationImmNode : Node
+{
+	ushort val;
+	this(Node a, ushort val)
 	{
 		this.AddInput(a);
 		this.val = val;
@@ -828,14 +920,15 @@ class OperationImmNode : Node
 	override void Generate(Restriction res)
 	{
 		inputs[0].Generate(res);
-		Emit(0x7000 | cast(ushort)((res.result_register)<<8) | cast(ushort)(this.val));
+		Emit(0x7000 | cast(ushort)((res.result_register)<<8) | cast(ushort)(this.val&0xff));
+		Emit(0x5000 | cast(ushort)((res.result_register + 1)<<8) | cast(ushort)(this.val>>>8));
 		res.SetResult(this);
 	}
 }
 
 class GreaterImmNode : OperationImmNode
 {
-	this(Node a, ubyte val)
+	this(Node a, ushort val)
 	{
 		super(a,val);
 	}
@@ -843,7 +936,7 @@ class GreaterImmNode : OperationImmNode
 
 class LesserImmNode : OperationImmNode
 {
-	this(Node a, ubyte val)
+	this(Node a, ushort val)
 	{
 		super(a,val);
 	}
@@ -942,7 +1035,7 @@ class BinaryNode : Node
 			}
 			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
 			{
-				return new GreaterImmNode(this.inputs[1],cast(ubyte)a&0xff);
+				return new GreaterImmNode(this.inputs[1],a);
 			}
 		}
 		else if((cast(ConstantNode)this.inputs[1]))
@@ -956,12 +1049,34 @@ class BinaryNode : Node
 			{
 				return new LshImmNode(this.inputs[0],cast(ubyte)a&0xf);
 			}
+			if(this.type == BinaryOperationType.RIGHTSHIFTLOGI && (a < 0x10))
+			{
+				return new RshImmNode(this.inputs[0],cast(ubyte)a&0xf);
+			}
 			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
 			{
-				return new LesserImmNode(this.inputs[0],cast(ubyte)a&0xff);
+				return new LesserImmNode(this.inputs[0],a);
 			}
 		}
 		return this;
+	}
+	
+	override void SmartOptimize()
+	{
+		Node[] readers;
+		Node[] modifiers;
+		foreach(output; outputs)
+		{
+			if(output.Modifies(this))
+			{
+				modifiers ~= output.GetModifier();
+			}
+			else if(output.Reads(this))
+			{
+				readers ~= output;
+			}
+		}
+		writeln(this.type,readers);
 	}
 }
 
@@ -981,13 +1096,13 @@ class ReturnNode : Node
 	{
 		//Restriction res = new Restriction();
 		res.result_register = 0;
-		writeln("Begin Return");
+		//writeln("Begin Return");
 		foreach(input; inputs)
 		{
 			input.Generate(res);
 		}
 		Emit(0xFE1F);
-		writeln("End Return");
+		//writeln("End Return");
 	}
 }
 
@@ -1026,7 +1141,7 @@ class ConditionNode : Node
 	{
 		//Restriction res = new Restriction();
 		res.result_register = 0;
-		writeln("Begin Condition");
+		//writeln("Begin Condition");
 		ulong beginif = templabel;
 		++templabel;
 		ulong endif = templabel;
@@ -1046,7 +1161,7 @@ class ConditionNode : Node
 			}
 		}
 		Label(endif);
-		writeln("End Condition");
+		//writeln("End Condition");
 	}
 	
 	override Node Optimize()
