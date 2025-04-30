@@ -10,6 +10,7 @@ class Restriction
 	ubyte res_reg;
 	
 	Node[8] register_contain;
+	Type[16] register_type;
 	
 	@property ubyte result_register()
 	{
@@ -29,6 +30,12 @@ class Restriction
 	void SetResult(Node n)
 	{
 		this.register_contain[this.result_register>>1] = n;
+		this.register_type[this.result_register] = n.GetType();
+	}
+	
+	Type GetType(ubyte reg)
+	{
+		return register_type[reg];
 	}
 	
 	void SetRegister(ubyte reg, Node n)
@@ -299,10 +306,12 @@ class FunctionNode : Node
 {
 	static bool funcprint = false;
 	string name;
-	this(string name)
+	Type type;
+	this(string name, Type type)
 	{
 		super();
 		this.name = name;
+		this.type = type;
 		nodes ~= this;
 	}
 	override string toString()
@@ -322,7 +331,7 @@ class FunctionNode : Node
 	{
 		foreach(i, arg; inputs[1..$])
 		{
-			res.SetRegister(cast(ubyte)i,arg);
+			res.SetRegister((cast(ubyte)(i<<1)),arg);
 		}
 		res.result_register = cast(ubyte)((inputs.length-1)<<1);
 		inputs[0].Generate(res);
@@ -372,6 +381,16 @@ class ConstantNode : Node
 			Emit(cast(ushort)((res.result_register<<8)|(this.val&0xff)));
 			Emit(cast(ushort)(((res.result_register+1)<<8)|((this.val>>>8)&0xff)));
 		}
+		res.SetResult(this);
+	}
+	
+	override Type GetType()
+	{
+		if(this.type.ptrdepth > 0)
+		{
+			return types.u16;
+		}
+		return this.type;
 	}
 }
 
@@ -449,6 +468,15 @@ class VariableNode : Node
 		writeln("piss");
 	}
 	
+	override Type GetType()
+	{
+		if(this.type.ptrdepth > 0)
+		{
+			return types.u16;
+		}
+		return this.type;
+	}
+	
 	override Node Optimize()
 	{
 		super.Optimize();
@@ -473,6 +501,11 @@ class ArrayVariableNode : Node
 		this.var = var;
 		globalarrays[this.var.name] = this;
 	}
+	
+	override Type GetType()
+	{
+		return this.var.type;
+	}
 }
 
 class CallNode : Node
@@ -487,9 +520,14 @@ class CallNode : Node
 		return "Call " ~ super.toString();
 	}
 	
+	override Type GetType()
+	{
+		return (cast(FunctionNode)this.inputs[0]).type;
+	}
+	
 	override void Generate(Restriction res)
 	{
-		writeln("Begin Call ", (cast(FunctionNode)this.inputs[0]).name);
+		FunctionNode fn = (cast(FunctionNode)this.inputs[0]);
 		foreach(input; inputs[1..$])
 		{
 			input.Generate(res);
@@ -497,13 +535,23 @@ class CallNode : Node
 		}
 		
 		Emit(cast(ushort)(0xF001));
-		LinkFunction(cast(FunctionNode)this.inputs[0]);
-		//ubyte result = res.result_register;
-		//if(result != 0)
-		//{
-		//	Emit(0xF005 | (result<<8));
-		//}
-		writeln("End Call ", (cast(FunctionNode)this.inputs[0]).name);
+		LinkFunction(fn);
+		ubyte result = res.result_register;
+		if(result != 0)
+		{
+			if(fn.type.size == 16)
+			{
+				Emit(0xF005 | (result<<8));
+			}
+			else if(fn.type.size == 8)
+			{
+				Emit(0x8000 | (result<<8));
+			}
+			else
+			{
+				throw new Exception("invalid function return type size " ~ to!string(fn.type.size));
+			}
+		}
 		//res.result_register = result;
 	}
 }
@@ -551,6 +599,11 @@ class DerefImmNode : Node
 		Emit(cn.val);
 		res.SetResult(this.inputs[0]);
 	}
+	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
+	}
 }
 
 class ReferenceNode : Node
@@ -569,6 +622,11 @@ class ReferenceNode : Node
 	{
 		this.inputs ~= other;
 		other.outputs ~= this;
+	}
+	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
 	}
 	
 	override void Generate()
@@ -607,7 +665,19 @@ class ReferenceNode : Node
 				return;
 			}
 		}
-		Emit(cast(ushort)(0x9012 | (res.result_register<<8)));
+		Type type = this.inputs[0].GetType();
+		if(type.size == 16)
+		{
+			Emit(cast(ushort)(0x9012 | (res.result_register<<8)));
+		}
+		else if(type.size == 8)
+		{
+			Emit(cast(ushort)(0x9010 | (res.result_register<<8)));
+		}
+		else
+		{
+			throw new Exception("idk how to emit type.szie = " ~ to!string(type.size));
+		}
 		LinkVariable(cast(VariableNode)this.inputs[0]);
 		res.SetResult(this.inputs[0]);
 	}
@@ -760,6 +830,10 @@ class UnaryNode : Node
 		{
 			//Emit(cast(ushort)(0x9002 | (res.result_register << 4) | (res.result_register << 8)));
 		}
+		else if(this.type == UnaryOperationType.NOT)
+		{
+			Emit(cast(ushort)(0x40FF | (res.result_register << 8)));
+		}
 		else
 		{
 			throw new Exception("idk what to do with " ~ to!string(this.type));
@@ -823,6 +897,11 @@ class AddImmNode : Node
 		return other.val == this.val && other.inputs[0] == this.inputs[0];
 	}
 	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
+	}
+	
 	override string toString()
 	{
 		return "AddImmNode " ~ super.toString();
@@ -865,6 +944,11 @@ class LshImmNode : Node
 		return "LshImmNode " ~ super.toString();
 	}
 	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
+	}
+	
 	override void Generate(Restriction res)
 	{
 		if(res.ResultContains(this))
@@ -902,6 +986,11 @@ class RshImmNode : Node
 			return false;
 		}
 		return other.val == this.val && other.inputs[0].EquivalentTo(this.inputs[0]);
+	}
+	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
 	}
 	
 	override void Generate(Restriction res)
@@ -942,6 +1031,11 @@ class OperationImmNode : Node
 		return other.val == this.val && other.inputs[0].EquivalentTo(this.inputs[0]);
 	}
 	
+	override Type GetType()
+	{
+		return types.boolean;
+	}
+	
 	override void Generate(Restriction res)
 	{
 		inputs[0].Generate(res);
@@ -978,6 +1072,11 @@ class BinaryNode : Node
 		this.type = type;
 	}
 	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
+	}
+	
 	override string toString()
 	{
 		return "Binary " ~ to!string(type) ~ " " ~ super.toString();
@@ -1008,16 +1107,51 @@ class BinaryNode : Node
 				return;
 			}
 		}
-		writeln("Begin Binary ", this.type);
 		inputs[0].Generate(res);
 		ubyte first = res.result_register;
+		ubyte firsttype = res.GetType(first).size;
+		writeln("firsttype ", firsttype);
 		res.IncResult(2);
 		inputs[1].Generate(res);
 		ubyte second = res.result_register;
+		ubyte secondtype = res.GetType(second).size;
 		res.result_register = cast(ubyte)(first);
 		if(this.type == BinaryOperationType.ADD)
 		{
-			Emit(0xF006 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+			if(firsttype == secondtype)
+			{
+				if(firsttype == 16)
+				{
+					Emit(0xF006 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+				}
+				else if(firsttype == 8)
+				{
+					Emit(0x8001 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+				}
+				else
+				{
+					throw new Exception("firsttype == " ~ to!string(firsttype));
+				}
+			}
+			else
+			{
+				if(firsttype == 16 && secondtype == 8)
+				{
+					Emit(0x8001 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+					Emit(0x6000 | cast(ushort)((first+1)<<8));
+				}
+				else if(firsttype == 8 && secondtype == 16)
+				{
+					writeln(first, " ", this.inputs[0], " ", firsttype);
+					res.result_register = cast(ubyte)(second);
+					Emit(0x8001 | cast(ushort)(second<<8) | cast(ushort)((first)<<4));
+					Emit(0x6000 | cast(ushort)((second+1)<<8));
+				}
+				else
+				{
+					throw new Exception("firsttype == " ~ to!string(firsttype) ~ " | secondtype = " ~ to!string(secondtype));
+				}
+			}
 		}
 		else if(this.type == BinaryOperationType.EQUAL)
 		{
@@ -1317,7 +1451,18 @@ class AssignNode : Node
 		else if(cast(ReferenceNode)inputs[0])
 		{
 			inputs[1].Generate(res);
-			Emit(cast(ushort)(0x9013 | (res.result_register<<8)));
+			if(inputs[0].GetType().size == 16)
+			{
+				Emit(cast(ushort)(0x9013 | (res.result_register<<8)));
+			}
+			else if(inputs[0].GetType().size == 8)
+			{
+				Emit(cast(ushort)(0x9011 | (res.result_register<<8)));
+			}
+			else
+			{
+				throw new Exception("i HAVE to jump off the carpet... ");
+			}
 			LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
 		}
 		else
@@ -1344,6 +1489,11 @@ class ArrayAccessNode : Node
 	override bool EquivalentTo(Node n)
 	{
 		return n == this || ((cast(ArrayAccessNode)n) && n.inputs[0] == this.inputs[0] && n.inputs[1] == this.inputs[1]);
+	}
+	
+	override Type GetType()
+	{
+		return this.inputs[0].GetType();
 	}
 	
 	override void Generate(Restriction res)
@@ -1414,7 +1564,7 @@ FunctionNode FindFunction(string name)
 			}
 		}
 	}
-	return new FunctionNode(name);
+	return new FunctionNode(name, types.voidtype);
 }
 
 VariableNode FindVariable(string name, Node defaultval, Type type)
@@ -1561,6 +1711,7 @@ Node GatherFunction(Function func)
 	{
 		funcnode.AddInput(FindVariable(var.name, null, var.type));
 	}
+	funcnode.type = func.returntype;
 	ExitScope(scopenode,func.inside);
 	return funcnode;
 	

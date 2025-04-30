@@ -52,6 +52,7 @@ enum KEYWORD
 	RIGHTSHIFTLOGI,
 	BITAND,
 	NOTEQUAL,
+	TYLDE,
 }
 
 enum StatementType
@@ -193,6 +194,7 @@ KEYWORD[string] stringToToken = [
 	"[":KEYWORD.LEFTBRACKET,
 	"]":KEYWORD.RIGHTBRACKET,
 	"&":KEYWORD.BITAND,
+	"~":KEYWORD.TYLDE,
 ];
 
 uint linecount = 0;
@@ -400,7 +402,7 @@ class Number
 
 void GetNumberUnary(TokenVomiter tv, ref Number num)
 {
-	if(tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.STAR) || tv.check(KEYWORD.CAST))
+	if(tv.check(KEYWORD.MINUS) || tv.check(KEYWORD.STAR) || tv.check(KEYWORD.CAST) || tv.check(KEYWORD.TYLDE))
 	{
 		Token operator = tv.next();
 		num = new Number();
@@ -418,6 +420,9 @@ void GetNumberUnary(TokenVomiter tv, ref Number num)
 		{
 			case KEYWORD.MINUS:
 				num.unary_op.type = UnaryOperationType.NEGATE;
+				break;
+			case KEYWORD.TYLDE:
+				num.unary_op.type = UnaryOperationType.NOT;
 				break;
 			case KEYWORD.STAR:
 				num.unary_op.type = UnaryOperationType.DEREF;
