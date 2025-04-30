@@ -1387,6 +1387,7 @@ class ConditionNode : Node
 	override Node Optimize()
 	{
 		super.Optimize();
+		this.conditiontype = 0xC900;
 		if((cast(ConstantNode)this.inputs[0]))
 		{
 			ushort a = (cast(ConstantNode)this.inputs[0]).val;
