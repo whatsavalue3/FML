@@ -99,6 +99,8 @@ class Variable
 	string name;
 	Type type;
 	Number defaultval;
+	bool isarg = false;
+	ubyte arg = 0;
 	ushort elements = 0;
 	ushort[] defaultelements;
 }
@@ -201,8 +203,7 @@ uint linecount = 0;
 
 string TryToken(string tok, string str, KEYWORD kw, ref bool found)
 {
-	
-	if(startsWith(str,tok))
+	if(startsWith(str,tok) && (tok.length == str.length || kw == KEYWORD.SKIP || !isAlphaNum(str[tok.length-1]) || !isAlphaNum(str[tok.length])))
 	{
 		if(tok == "\n")
 		{
@@ -429,7 +430,6 @@ void GetNumberUnary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.CAST:
 				num.unary_op.type = UnaryOperationType.CAST;
-				
 				break;
 			default:
 				throw new Exception("Unknown unary operation");
@@ -741,8 +741,10 @@ Function ParseFunction(TokenVomiter tv)
 	}
 	tv.expect(KEYWORD.RIGHTPAREN);
 	func.inside = GetScope(tv);
-	foreach(var; func.args)
+	foreach(i, var; func.args)
 	{
+		var.isarg = true;
+		var.arg = cast(ubyte)i;
 		func.inside.variables[var.name] = var;
 	}
 	return func;

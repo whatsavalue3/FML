@@ -493,6 +493,46 @@ class VariableNode : Node
 	}
 }
 
+class ArgumentNode : Node
+{
+	string name;
+	ubyte index;
+	Type type;
+	
+	this(string name, ubyte index, Type type)
+	{
+		this.name = name;
+		this.type = type;
+		this.index = index;
+		scopestack[$-1].AddInput(this);
+	}
+	
+	override string toString()
+	{
+		return this.name;
+	}
+	
+	override void Generate()
+	{
+		writeln("Variable " ~ name);
+	}
+	
+	override void Generate(Restriction res)
+	{
+		res.result_register = cast(ubyte)(this.index<<1);
+		res.SetResult(this);
+	}
+	
+	override Type GetType()
+	{
+		if(this.type.ptrdepth > 0)
+		{
+			return types.u16;
+		}
+		return this.type;
+	}
+}
+
 class ArrayVariableNode : Node
 {
 	Variable var;
@@ -528,6 +568,7 @@ class CallNode : Node
 	override void Generate(Restriction res)
 	{
 		FunctionNode fn = (cast(FunctionNode)this.inputs[0]);
+		res.result_register = 0;
 		foreach(input; inputs[1..$])
 		{
 			input.Generate(res);
@@ -579,7 +620,7 @@ class DerefImmNode : Node
 
 	override void Generate(Restriction res)
 	{
-		if(res.ResultContains(this.inputs[0]))
+		if(res.ResultContains(this))
 		{
 			return;
 		}
@@ -597,7 +638,7 @@ class DerefImmNode : Node
 			throw new Exception("bruh type.size = " ~ to!string(cn.type.size));
 		}
 		Emit(cn.val);
-		res.SetResult(this.inputs[0]);
+		res.SetResult(this);
 	}
 	
 	override Type GetType()
@@ -1110,7 +1151,6 @@ class BinaryNode : Node
 		inputs[0].Generate(res);
 		ubyte first = res.result_register;
 		ubyte firsttype = res.GetType(first).size;
-		writeln("firsttype ", firsttype);
 		res.IncResult(2);
 		inputs[1].Generate(res);
 		ubyte second = res.result_register;
@@ -1173,6 +1213,11 @@ class BinaryNode : Node
 		else if(this.type == BinaryOperationType.AND)
 		{
 			Emit(0x8002 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+		}
+		else if(this.type == BinaryOperationType.SUB)
+		{
+			Emit(0x8008 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+			Emit(0x8009 | cast(ushort)((first+1)<<8) | cast(ushort)((second+1)<<4));
 		}
 		else
 		{
@@ -1266,11 +1311,15 @@ class ReturnNode : Node
 	override void Generate(Restriction res)
 	{
 		//Restriction res = new Restriction();
-		res.result_register = 0;
 		//writeln("Begin Return");
+		//res.result_register = 0;
 		foreach(input; inputs)
 		{
 			input.Generate(res);
+		}
+		if(res.result_register != 0)
+		{
+			Emit(0x8000 | cast(ushort)(res.result_register<<4));
 		}
 		Emit(0xFE1F);
 		//writeln("End Return");
@@ -1586,6 +1635,25 @@ VariableNode FindVariable(string name, Node defaultval, Type type)
 	return new VariableNode(name, defaultval, type);
 }
 
+ArgumentNode FindArgument(string name, ubyte index, Type type)
+{
+	foreach(scop; scopestack)
+	{
+		foreach(node; scop.inputs)
+		{
+			if(cast(ArgumentNode)(node) !is null)
+			{
+				if((cast(ArgumentNode)(node)).name == name)
+				{
+					return cast(ArgumentNode)node;
+				}
+			}
+		}
+	}
+	
+	return null;
+}
+
 ReferenceNode FindReference(VariableNode var)
 {
 	if(var.outputs.length > 2)
@@ -1632,7 +1700,11 @@ Node GatherNumber(Number num)
 	}
 	else if(num.type == NumberType.VARIABLE)
 	{
-		numnode = FindReference(FindVariable(num.var, null, types.voidtype));
+		numnode = FindArgument(num.var,0,types.voidtype);
+		if(numnode is null)
+		{
+			numnode = FindReference(FindVariable(num.var, null, types.voidtype));
+		}
 	}
 	else if(num.type == NumberType.ARRAYACCESS)
 	{
@@ -1674,7 +1746,12 @@ ScopeNode CreateScope(Scope inside)
 	ScopeNode scopenode = new ScopeNode();
 	foreach(var; inside.variables)
 	{
-		writeln(var.name);
+		if(var.isarg)
+		{
+			FindArgument(var.name, var.arg, var.type);
+			continue;
+		}
+		
 		if(var.defaultval is null)
 		{
 			FindVariable(var.name, null, var.type);
@@ -1707,9 +1784,9 @@ Node GatherFunction(Function func)
 	FunctionNode funcnode = FindFunction(func.name);
 	ScopeNode scopenode = CreateScope(func.inside);
 	funcnode.AddInput(scopenode);
-	foreach(var; func.args)
+	foreach(i, var; func.args)
 	{
-		funcnode.AddInput(FindVariable(var.name, null, var.type));
+		funcnode.AddInput(new ArgumentNode(var.name, cast(ubyte)i, var.type));
 	}
 	funcnode.type = func.returntype;
 	ExitScope(scopenode,func.inside);
