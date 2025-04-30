@@ -10,7 +10,7 @@ local const u8 bitmap[8] = [0x7f,0xc1,0x81,0x81,0x81,0x81,0x83,0xfe];
 
 function u8 GetKey(u8 x, u8 y)
 	*ki = 1<<x;
-	return ((*ko) & (1<<y));
+	return (*ko)&(1<<y);
 end
 
 local u8 res = 0;
@@ -19,18 +19,17 @@ function void main()
 	while 1 do
 		i = 0;
 		*cast(u8*)(0xF037) = 0x4;
-		while 0x100 > i do
-			*cast(u8*)((screen + i)) = bitmap[i>>>5];
-			*cast(u8*)((screen + i) + 1) = bitmap[i>>>5];
-			i = i + 0x20;
+		while 8 > i do
+			*cast(u8*)(screen + (i<<5)) = bitmap[i];
+			*cast(u8*)((screen + (i<<5)) + 1) = bitmap[i];
+			i = i + 1;
 		end
-		
 		i = 0;
 		*cast(u8*)(0xF037) = 0x0;
-		while 0x100 > i do
-			*cast(u8*)((screen + i)) = bitmap[i>>>5];
-			*cast(u8*)((screen + i) + 2) = bitmap[i>>>5];
-			i = i + 0x20;
+		while 8 > i do
+			*cast(u8*)(screen + (i<<5)) = bitmap[i];
+			*cast(u8*)((screen + (i<<5)) + 2) = bitmap[i];
+			i = i + 1;
 		end
 	end
 end
