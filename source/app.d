@@ -4,6 +4,7 @@ import std.algorithm;
 import std.string;
 import std.ascii;
 import std.conv;
+import std.path;
 import gatherer;
 import generator;
 import std.format;
@@ -34,6 +35,7 @@ enum KEYWORD
 	WHILE,
 	DO,
 	CAST,
+	REQUIRE,
 	
 	LEFTPAREN,
 	RIGHTPAREN,
@@ -150,7 +152,7 @@ class Module
 
 Module[string] modules;
 
-Token[] tokens;
+
 
 KEYWORD[string] zerothStringToToken = 
 [
@@ -183,6 +185,7 @@ KEYWORD[string] stringToToken = [
 	"while":KEYWORD.WHILE,
 	"do":KEYWORD.DO,
 	"cast":KEYWORD.CAST,
+	"require":KEYWORD.REQUIRE,
 	"if":KEYWORD.IF,
 	" ":KEYWORD.SKIP,
 	"\n":KEYWORD.SKIP,
@@ -209,7 +212,7 @@ KEYWORD[string] stringToToken = [
 
 uint linecount = 0;
 
-string TryToken(string tok, string str, KEYWORD kw, ref bool found)
+string TryToken(TokenVomiter tv, string tok, string str, KEYWORD kw, ref bool found)
 {
 	if(startsWith(str,tok) && (tok.length == str.length || kw == KEYWORD.SKIP || !isAlphaNum(str[tok.length-1]) || !isAlphaNum(str[tok.length])))
 	{
@@ -219,14 +222,14 @@ string TryToken(string tok, string str, KEYWORD kw, ref bool found)
 		}
 		if(kw != KEYWORD.SKIP)
 		{
-			tokens ~= Token(type:kw,name:"",line:linecount);
+			tv.tokens ~= Token(type:kw,name:"",line:linecount);
 		}
 		found = true;
 	}
 	return chompPrefix(str,tok);
 }
 
-void Tokenize(string code)
+void Tokenize(TokenVomiter tv, string code)
 {
 	bool found = false;
 	while(!found)
@@ -235,13 +238,13 @@ void Tokenize(string code)
 		{
 			foreach(string kwStr, KEYWORD kw; zerothStringToToken)
 			{
-				code = TryToken(kwStr,code,kw,found);
+				code = TryToken(tv, kwStr,code,kw,found);
 			}
 			foreach(string kwStr, KEYWORD kw; firstStringToToken)
 			{
-				code = TryToken(kwStr,code,kw,found);
+				code = TryToken(tv, kwStr,code,kw,found);
 			}
-			code = TryToken(kwStr,code,kw,found);
+			code = TryToken(tv, kwStr,code,kw,found);
 		}
 		if(!found)
 		{
@@ -261,7 +264,7 @@ void Tokenize(string code)
 			}
 			if(name != "")
 			{
-				tokens ~= Token(type:numeric ? KEYWORD.NUMBER : KEYWORD.NAME,name:name,line:linecount);
+				tv.tokens ~= Token(type:numeric ? KEYWORD.NUMBER : KEYWORD.NAME,name:name,line:linecount);
 				code = chompPrefix(code,name);
 				continue;
 			}
@@ -269,11 +272,11 @@ void Tokenize(string code)
 		}
 		found = false;
 	}
-	writeln(tokens);
 }
 
 class TokenVomiter
 {
+	Token[] tokens;
 	uint i = 0;
 	Token next()
 	{
@@ -865,6 +868,10 @@ void Parse(TokenVomiter tv, string name)
 			case KEYWORD.ALIAS:
 				ParseAlias(tv);
 				break;
+			case KEYWORD.REQUIRE:
+				Require(tv.expect(KEYWORD.NAME).name);
+				tv.expect(KEYWORD.SEMICOLON);
+				break;
 			default:
 				throw new Exception("you done goofed");
 				break;
@@ -873,6 +880,16 @@ void Parse(TokenVomiter tv, string name)
 	}
 	modules[name] = mod;
 }
+
+void Require(string name)
+{
+	string code = cast(string)read(setExtension(name,"fml"));
+	auto tv = new TokenVomiter();
+	Tokenize(tv, code);
+
+	Parse(tv,name);
+}
+
 static this()
 {
 
@@ -885,15 +902,15 @@ void main(string[] args)
 	}
 	foreach(arg; args[1..$])
 	{
-		string code = cast(string)read(arg);
-		Tokenize(code);
-	
-		auto tv = new TokenVomiter();
-		Parse(tv,arg);
+		Require(arg);
 	}
 	foreach(mod; modules)
 	{
 		Gather(mod);
+	}
+	foreach(mod; modules)
+	{
+		GatherFunctions(mod);
 	}
 	Generate();
 }

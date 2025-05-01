@@ -1921,6 +1921,10 @@ void Gather(Module mod)
 			FindVariable(var.name, GatherNumber(var.defaultval), var.hasloc, var.location, var.type);
 		}
 	}
+}
+
+void GatherFunctions(Module mod)
+{
 	foreach(func; mod.functions)
 	{
 		GatherFunction(func);
