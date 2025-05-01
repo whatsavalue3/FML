@@ -1,0 +1,14 @@
+function void Render(u8 x, u8 y, u16 index)
+	j = 0;
+	while j < 4 do
+		i = 0;
+		while i < 8 do
+			screen[((i+y)<<5)+x] = bitmap[(cast(u8)(index>>>12)<<3)+i];
+			i = i + 1;
+		end
+		index = index << 4;
+		x = x + 1;
+		j = j + 1;
+	end
+	return 0;
+end
