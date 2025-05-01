@@ -53,6 +53,7 @@ enum KEYWORD
 	BITAND,
 	NOTEQUAL,
 	TYLDE,
+	LESS,
 }
 
 enum StatementType
@@ -193,6 +194,7 @@ KEYWORD[string] stringToToken = [
 	",":KEYWORD.COMMA,
 	"-":KEYWORD.MINUS,
 	">":KEYWORD.GREATER,
+	"<":KEYWORD.LESS,
 	"[":KEYWORD.LEFTBRACKET,
 	"]":KEYWORD.RIGHTBRACKET,
 	"&":KEYWORD.BITAND,
@@ -449,6 +451,7 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 	 || tv.check(KEYWORD.BITAND)
 	 || tv.check(KEYWORD.NOTEQUAL)
 	 || tv.check(KEYWORD.RIGHTSHIFTLOGI)
+	 || tv.check(KEYWORD.LESS)
 	 )
 	{
 		Token operator = tv.next();
@@ -465,6 +468,9 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.GREATER:
 				newnum.binary_op.type = BinaryOperationType.GREATER;
+				break;
+			case KEYWORD.LESS:
+				newnum.binary_op.type = BinaryOperationType.LESS;
 				break;
 			case KEYWORD.DOUBLEEQUAL:
 				newnum.binary_op.type = BinaryOperationType.EQUAL;

@@ -1209,6 +1209,10 @@ class BinaryNode : Node
 		{
 			Emit(0xF007 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
 		}
+		else if(this.type == BinaryOperationType.LESS)
+		{
+			Emit(0xF007 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+		}
 		else if(this.type == BinaryOperationType.LEFTSHIFT)
 		{
 			Emit(0x800B | cast(ushort)((first+1)<<8) | cast(ushort)((second + 1)<<4));
@@ -1254,6 +1258,10 @@ class BinaryNode : Node
 			{
 				return new GreaterImmNode(this.inputs[1],a);
 			}
+			if(this.type == BinaryOperationType.LESS && (a < 0x100))
+			{
+				return new LesserImmNode(this.inputs[1],a);
+			}
 		}
 		else if((cast(ConstantNode)this.inputs[1]))
 		{
@@ -1273,6 +1281,10 @@ class BinaryNode : Node
 			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
 			{
 				return new LesserImmNode(this.inputs[0],a);
+			}
+			if(this.type == BinaryOperationType.LESS && (a < 0x100))
+			{
+				return new GreaterImmNode(this.inputs[0],a);
 			}
 		}
 		return this;
