@@ -1213,6 +1213,10 @@ class BinaryNode : Node
 		{
 			Emit(0xF007 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
 		}
+		else if(this.type == BinaryOperationType.XOR)
+		{
+			Emit(0x8004 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+		}
 		else if(this.type == BinaryOperationType.LEFTSHIFT)
 		{
 			Emit(0x800B | cast(ushort)((first+1)<<8) | cast(ushort)((second + 1)<<4));

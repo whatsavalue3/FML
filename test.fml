@@ -18,7 +18,7 @@ end
 function void Render(u8 x, u8 y, u8 index)
 	i = 0;
 	while i < 8 do
-		*cast(u8*)(screen + ((i+y)<<5)+x) = bitmap[i+index];
+		*cast(u8*)(screen + ((i+y)<<5)+x) = bitmap[i+index]^0x81;
 		i = i + 1;
 	end
 	return 0;
