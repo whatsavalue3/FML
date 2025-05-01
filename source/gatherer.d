@@ -1226,6 +1226,10 @@ class BinaryNode : Node
 		{
 			Emit(0x8002 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
 		}
+		else if(this.type == BinaryOperationType.MUL)
+		{
+			Emit(0xF004 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));
+		}
 		else if(this.type == BinaryOperationType.SUB)
 		{
 			Emit(0x8008 | cast(ushort)(first<<8) | cast(ushort)((second)<<4));

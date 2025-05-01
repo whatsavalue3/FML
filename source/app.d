@@ -455,6 +455,7 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 	 || tv.check(KEYWORD.RIGHTSHIFTLOGI)
 	 || tv.check(KEYWORD.LESS)
 	 || tv.check(KEYWORD.XOR)
+	 || tv.check(KEYWORD.STAR)
 	 )
 	{
 		Token operator = tv.next();
@@ -483,6 +484,9 @@ void GetNumberBinary(TokenVomiter tv, ref Number num)
 				break;
 			case KEYWORD.LEFTSHIFT:
 				newnum.binary_op.type = BinaryOperationType.LEFTSHIFT;
+				break;
+			case KEYWORD.STAR:
+				newnum.binary_op.type = BinaryOperationType.MUL;
 				break;
 			case KEYWORD.BITAND:
 				newnum.binary_op.type = BinaryOperationType.AND;
