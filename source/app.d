@@ -883,12 +883,14 @@ void main(string[] args)
 	{
 		return;
 	}
+	foreach(arg; args[1..$])
+	{
+		string code = cast(string)read(arg);
+		Tokenize(code);
 	
-	string code = cast(string)read(args[1]);
-	Tokenize(code);
-	
-	auto tv = new TokenVomiter();
-	Parse(tv,args[1]);
+		auto tv = new TokenVomiter();
+		Parse(tv,arg);
+	}
 	foreach(mod; modules)
 	{
 		Gather(mod);
