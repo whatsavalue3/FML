@@ -29,6 +29,8 @@ function void main()
 		i = 0;
 		*cast(u8*)(0xF037) = 0x4;
 		Render(0,0,pos);
+		*cast(u8*)(0xF037) = 0x0;
+		Render(0,0,pos);
 	end
 end
 

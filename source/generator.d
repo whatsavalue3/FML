@@ -175,7 +175,14 @@ void Label(ulong label)
 void Generate()
 {
 	Emit(0xf000);
-	Emit(0x06);
+	foreach(node; nodes)
+	{
+		if((cast(FunctionNode)node).name == "main")
+		{
+			LinkFunction(cast(FunctionNode)node);
+			break;
+		}
+	}
 	Emit(0x06);
 	foreach(node; nodes)
 	{
