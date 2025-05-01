@@ -24,7 +24,16 @@ class Restriction
 	
 	void IncResult(ubyte val)
 	{
-		this.res_reg = cast(ubyte)(this.res_reg + val)&0xf;
+		do
+		{
+			this.res_reg = cast(ubyte)(this.res_reg + val)&0xf;
+		}
+		while (this.register_contain[this.result_register>>1] !is null);
+	}
+	
+	void FreeResult(ubyte val)
+	{
+		this.register_contain[val>>1] = null;
 	}
 	
 	void SetResult(Node n)
@@ -523,7 +532,20 @@ class ArgumentNode : Node
 	
 	override void Generate(Restriction res)
 	{
-		res.result_register = cast(ubyte)(this.index<<1);
+		//res.result_register = cast(ubyte)(this.index<<1);
+		Type t = this.GetType();
+		if(t.size == 16)
+		{
+			Emit(cast(ushort)(0xF005 | (this.index<<5) | (res.result_register<<8)));
+		}
+		else if(t.size == 8)
+		{
+			Emit(cast(ushort)(0x8000 | (this.index<<5) | (res.result_register<<8)));
+		}
+		else
+		{
+			throw new Exception("idk how to emit ArgumentNode with size " ~ to!string(t.size));
+		}
 		res.SetResult(this);
 	}
 	
@@ -575,6 +597,7 @@ class CallNode : Node
 		res.result_register = 0;
 		foreach(input; inputs[1..$])
 		{
+			res.FreeResult(cast(ubyte)(res.result_register+2));
 			input.Generate(res);
 			res.IncResult(2);
 		}
@@ -757,9 +780,10 @@ class ReferenceNode : Node
 			}
 		}
 		
-		bool justadds = true;
+		bool justadds = false;
 		foreach(modifier; modifiers)
 		{
+			justadds = true;
 			if((cast(AddImmNode)modifier) is null)
 			{
 				justadds = false;
@@ -767,7 +791,7 @@ class ReferenceNode : Node
 			}
 		}
 		
-		ubyte howMuchLeftShift = 0x10;
+		ubyte howMuchLeftShift = 0x11;
 		foreach(reader; readers)
 		{
 			if(cast(LshImmNode)reader)
@@ -785,13 +809,13 @@ class ReferenceNode : Node
 			else
 			{
 				writeln("WHAT  TE ", reader);
-				howMuchLeftShift = 0;
+				howMuchLeftShift = 0x11;
 				break;
 			}
 		}
 		writeln(readers);
 		//writeln(this.inputs[0], ": ", readers, " howMuchLeftShift ", howMuchLeftShift);
-		if(justadds && howMuchLeftShift)
+		if(justadds && (howMuchLeftShift != 0x11))
 		{
 			RshImmNode rin = new RshImmNode(this,howMuchLeftShift);
 			foreach(modifier; modifiers)
@@ -1050,8 +1074,20 @@ class RshImmNode : Node
 			return;
 		}
 		inputs[0].Generate(res);
-		Emit(0x900D | cast(ushort)(res.result_register<<8) | cast(ushort)(this.val<<4));
-		Emit(0x900C | cast(ushort)((res.result_register+1)<<8) | cast(ushort)(this.val<<4));
+		if(this.val > 7)
+		{
+			Emit(0x8000 | cast(ushort)(res.result_register<<8) | cast(ushort)((res.result_register+1)<<4));
+			if(this.val > 8)
+			{
+				Emit(0x900C | cast(ushort)(res.result_register<<8) | cast(ushort)((this.val-8)<<4));
+			}
+			Emit(cast(ushort)((res.result_register+1)<<8));
+		}
+		else
+		{
+			Emit(0x900D | cast(ushort)(res.result_register<<8) | cast(ushort)(this.val<<4));
+			Emit(0x900C | cast(ushort)((res.result_register+1)<<8) | cast(ushort)(this.val<<4));
+		}
 		res.SetResult(this);
 	}
 }
@@ -1244,6 +1280,7 @@ class BinaryNode : Node
 			throw new Exception("idk how to emit " ~ to!string(this.type));
 		}
 		res.SetResult(this);
+		res.FreeResult(second);
 		writeln("End Binary ", this.type);
 	}
 	
@@ -1268,11 +1305,11 @@ class BinaryNode : Node
 			}
 			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
 			{
-				return new GreaterImmNode(this.inputs[1],a);
+				return new GreaterImmNode(this.inputs[1],cast(ubyte)a);
 			}
 			if(this.type == BinaryOperationType.LESS && (a < 0x100))
 			{
-				return new LesserImmNode(this.inputs[1],a);
+				return new LesserImmNode(this.inputs[1],cast(ubyte)a);
 			}
 		}
 		else if((cast(ConstantNode)this.inputs[1]))
@@ -1292,11 +1329,12 @@ class BinaryNode : Node
 			}
 			if(this.type == BinaryOperationType.GREATER && (a < 0x100))
 			{
-				return new LesserImmNode(this.inputs[0],a);
+				return new LesserImmNode(this.inputs[0],cast(ubyte)a);
 			}
 			if(this.type == BinaryOperationType.LESS && (a < 0x100))
 			{
-				return new GreaterImmNode(this.inputs[0],a);
+				writeln("BinaryOperationType.LESS    ", a);
+				return new GreaterImmNode(this.inputs[0],cast(ubyte)a);
 			}
 		}
 		return this;
@@ -1487,7 +1525,7 @@ class AssignNode : Node
 	
 	override void Generate(Restriction res)
 	{
-		res.IncResult(2);
+		//res.IncResult(2);
 		//writeln("Begin Assign");
 		//Restriction res = new Restriction();
 		//inputs[0].Generate();
@@ -1520,6 +1558,7 @@ class AssignNode : Node
 				{
 					throw new Exception("i HAVE to shoot myself... ");
 				}
+				res.FreeResult(innie);
 			}
 			else
 			{
@@ -1543,6 +1582,25 @@ class AssignNode : Node
 			}
 			LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
 		}
+		else if(cast(ArgumentNode)inputs[0])
+		{
+			ubyte innie = cast(ubyte)((cast(ArgumentNode)inputs[0]).index << 1);
+			inputs[1].Generate(res);
+			if(inputs[0].GetType().size == 16)
+			{
+				Emit(cast(ushort)(0xF005 | (res.result_register<<4) | (innie<<8)));
+			}
+			else if(inputs[0].GetType().size == 8)
+			{
+				Emit(cast(ushort)(0x8000 | (res.result_register<<4) | (innie<<8)));
+			}
+			else
+			{
+				throw new Exception("i HAVE to jump off the carpet... ");
+			}
+			res.FreeResult(innie);
+			//LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
+		}
 		else if(cast(ArrayAccessNode)inputs[0])
 		{
 			inputs[0].inputs[1].Generate(res);
@@ -1554,11 +1612,13 @@ class AssignNode : Node
 				Emit(cast(ushort)(0x9009 | (res.result_register<<8) | (innie<<4)));
 			}
 			LinkArrayVariable(cast(ArrayVariableNode)(inputs[0].inputs[0]));
+			res.FreeResult(innie);
 		}
 		else
 		{
 			throw new Exception("idfk how to emit this im paid too little " ~ to!string(inputs[0]));
 		}
+		res.FreeResult(res.result_register);
 		//writeln("End Assign");
 	}
 }
