@@ -15,6 +15,15 @@ function u8 GetKey(u8 x, u8 y)
 	return ((~*ko)&(1<<y));
 end
 
+function void Render(u8 x, u8 y, u8 index)
+	i = 0;
+	while 8 > i do
+		*cast(u8*)(screen + ((i+y)<<5)+x) = bitmap[i+index];
+		i = i + 1;
+	end
+	return 0;
+end
+
 local u8 up = 0;
 local u8 down = 0;
 local u16 pos = 0;
@@ -32,14 +41,7 @@ function void main()
 		
 		i = 0;
 		*cast(u8*)(0xF037) = 0x4;
-		while 64 > i do
-			*cast(u8*)(screen + (i<<5)) = bitmap[i];
-			i = i + 1;
-		end
-		i = 0;
-		while 64 > i do
-			*cast(u8*)(screen + (i<<5) +1) = bitmap[i+64];
-			i = i + 1;
-		end
+		Render(0,0,0);
+		Render(2,16,8);
 	end
 end

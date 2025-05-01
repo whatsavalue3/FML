@@ -684,7 +684,12 @@ Statement ParseExpressionStatement(TokenVomiter tv)
 	Statement stat = new Statement();
 	stat.type = StatementType.ASSIGN;
 	stat.lvalue = GetNumber(tv);
-	tv.expect(KEYWORD.EQUAL);
+	if(!tv.optional(KEYWORD.EQUAL))
+	{
+		tv.expect(KEYWORD.SEMICOLON);
+		stat.type = StatementType.CALL;
+		return stat;
+	}
 	stat.rvalue = GetNumber(tv);
 	tv.expect(KEYWORD.SEMICOLON);
 	return stat;

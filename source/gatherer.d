@@ -588,6 +588,10 @@ class CallNode : Node
 			{
 				Emit(0x8000 | (result<<8));
 			}
+			else if(fn.type.size == 0)
+			{
+				
+			}
 			else
 			{
 				throw new Exception("invalid function return type size " ~ to!string(fn.type.size));
@@ -1724,6 +1728,14 @@ Node GatherStatement(Statement stat)
 	if(stat.type == StatementType.ASSIGN)
 	{
 		statnode = new AssignNode(GatherNumber(stat.lvalue),GatherNumber(stat.rvalue));
+	}
+	else if(stat.type == StatementType.CALL)
+	{
+		statnode = new CallNode(FindFunction(stat.lvalue.var));
+		foreach(arg; stat.lvalue.args)
+		{
+			statnode.AddInput(GatherNumber(arg));
+		}
 	}
 	else if(stat.type == StatementType.RETURN)
 	{
