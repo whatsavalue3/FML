@@ -124,12 +124,24 @@ void LabelFunction(FunctionNode func)
 
 void LabelVariable(VariableNode var)
 {
-	varIndex[var] = emittedram.length+0x4800;
-	emittedram ~= new L_Imm(cast(ushort)(emittedram.length+0x4800));
+	if(var.hasloc)
+	{
+		varIndex[var] = var.location>>1;
+	}
+	else
+	{
+		varIndex[var] = emittedram.length+0x4800;
+		emittedram ~= new L_Imm(cast(ushort)(emittedram.length+0x4800));
+	}
 }
 
 void LabelArrayVariable(ArrayVariableNode var)
 {
+	if(var.var.hasloc)
+	{
+		arrayIndex[var] = var.var.location>>1;
+		return;
+	}
 	arrayIndex[var] = emitted.length;
 	if(var.var.type.size == 8)
 	{
@@ -176,6 +188,10 @@ void Generate()
 	{
 		if(variable.type.isconst)
 		{
+			if(variable.hasloc)
+			{
+				LabelVariable(variable);
+			}
 			continue;
 		}
 		writeln(variable, ": ", variable.type);

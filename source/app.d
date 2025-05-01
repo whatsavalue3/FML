@@ -55,6 +55,7 @@ enum KEYWORD
 	TYLDE,
 	LESS,
 	XOR,
+	AT,
 }
 
 enum StatementType
@@ -101,6 +102,8 @@ class Variable
 	string name;
 	Type type;
 	Number defaultval;
+	bool hasloc = false;
+	ushort location = 0;
 	bool isarg = false;
 	ubyte arg = 0;
 	ushort elements = 0;
@@ -201,6 +204,7 @@ KEYWORD[string] stringToToken = [
 	"&":KEYWORD.BITAND,
 	"~":KEYWORD.TYLDE,
 	"^":KEYWORD.XOR,
+	"@":KEYWORD.AT,
 ];
 
 uint linecount = 0;
@@ -785,6 +789,13 @@ Variable ParseLocal(TokenVomiter tv)
 		{
 			return var;
 		}
+		if(tv.optional(KEYWORD.AT))
+		{
+			var.hasloc = true;
+			var.location = CalculateNumber(GetNumber(tv));
+			tv.expect(KEYWORD.SEMICOLON);
+			return var;
+		}
 		tv.expect(KEYWORD.EQUAL);
 		tv.expect(KEYWORD.LEFTBRACKET);
 		while(!tv.optional(KEYWORD.RIGHTBRACKET))
@@ -806,6 +817,15 @@ Variable ParseLocal(TokenVomiter tv)
 	{
 		return var;
 	}
+	
+	if(tv.optional(KEYWORD.AT))
+	{
+		var.hasloc = true;
+		var.location = CalculateNumber(GetNumber(tv));
+		tv.expect(KEYWORD.SEMICOLON);
+		return var;
+	}
+	
 	tv.expect(KEYWORD.EQUAL);
 	var.defaultval = GetNumber(tv);
 	tv.expect(KEYWORD.SEMICOLON);

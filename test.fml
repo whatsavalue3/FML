@@ -1,4 +1,4 @@
-local const u8* screen = 0xf800;
+local u8 screen[2048] @ 0xf800;
 
 local const u8* ki = 0xf046;
 local const u8* ko = 0xf040;
@@ -18,7 +18,7 @@ end
 function void Render(u8 x, u8 y, u8 index)
 	i = 0;
 	while i < 8 do
-		*cast(u8*)(screen + ((i+y)<<5)+x) = bitmap[i+index];
+		screen[((i+y)<<5)+x] = bitmap[i+index];
 		i = i + 1;
 	end
 	return 0;

@@ -441,11 +441,15 @@ class VariableNode : Node
 {
 	string name;
 	Type type;
+	bool hasloc;
+	ushort location;
 	
-	this(string name, Node value, Type type)
+	this(string name, Node value, bool hasloc, ushort location, Type type)
 	{
 		this.name = name;
 		this.type = type;
+		this.hasloc = hasloc;
+		this.location = location;
 		scopestack[$-1].AddInput(this);
 		if(value !is null)
 		{
@@ -1539,6 +1543,18 @@ class AssignNode : Node
 			}
 			LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
 		}
+		else if(cast(ArrayAccessNode)inputs[0])
+		{
+			inputs[0].inputs[1].Generate(res);
+			ubyte innie = res.result_register;
+			res.IncResult(2);
+			inputs[1].Generate(res);
+			if(inputs[0].GetType().size == 8)
+			{
+				Emit(cast(ushort)(0x9009 | (res.result_register<<8) | (innie<<4)));
+			}
+			LinkArrayVariable(cast(ArrayVariableNode)(inputs[0].inputs[0]));
+		}
 		else
 		{
 			throw new Exception("idfk how to emit this im paid too little " ~ to!string(inputs[0]));
@@ -1641,7 +1657,7 @@ FunctionNode FindFunction(string name)
 	return new FunctionNode(name, types.voidtype);
 }
 
-VariableNode FindVariable(string name, Node defaultval, Type type)
+VariableNode FindVariable(string name, Node defaultval, bool hasloc, ushort location, Type type)
 {
 	foreach(scop; scopestack)
 	{
@@ -1657,7 +1673,7 @@ VariableNode FindVariable(string name, Node defaultval, Type type)
 		}
 	}
 	
-	return new VariableNode(name, defaultval, type);
+	return new VariableNode(name, defaultval, hasloc, location, type);
 }
 
 ArgumentNode FindArgument(string name, ubyte index, Type type)
@@ -1702,6 +1718,10 @@ ArrayVariableNode FindArrayVariable(string name, Variable var)
 
 Node GatherNumber(Number num)
 {
+	if(num is null)
+	{
+		return null;
+	}
 	Node numnode = null;
 	if(num.type == NumberType.CALL)
 	{
@@ -1728,7 +1748,7 @@ Node GatherNumber(Number num)
 		numnode = FindArgument(num.var,0,types.voidtype);
 		if(numnode is null)
 		{
-			numnode = FindReference(FindVariable(num.var, null, types.voidtype));
+			numnode = FindReference(FindVariable(num.var, null, false, 0, types.voidtype));
 		}
 	}
 	else if(num.type == NumberType.ARRAYACCESS)
@@ -1787,11 +1807,11 @@ ScopeNode CreateScope(Scope inside)
 		
 		if(var.defaultval is null)
 		{
-			FindVariable(var.name, null, var.type);
+			FindVariable(var.name, null, var.hasloc, var.location, var.type);
 		}
 		else
 		{
-			FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+			FindVariable(var.name, GatherNumber(var.defaultval), var.hasloc, var.location, var.type);
 		}
 	}
 	return scopenode;
@@ -1838,7 +1858,7 @@ void Gather(Module mod)
 		}
 		else
 		{
-			FindVariable(var.name, GatherNumber(var.defaultval), var.type);
+			FindVariable(var.name, GatherNumber(var.defaultval), var.hasloc, var.location, var.type);
 		}
 	}
 	foreach(func; mod.functions)
