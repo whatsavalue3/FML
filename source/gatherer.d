@@ -1578,7 +1578,7 @@ class AssignNode : Node
 			}
 			else
 			{
-				throw new Exception("i HAVE to jump off the carpet... ");
+				throw new Exception("i HAVE to jump off the carpet... " ~ to!string(inputs[0].GetType().size));
 			}
 			LinkVariable(cast(VariableNode)(inputs[0].inputs[0]));
 		}

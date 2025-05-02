@@ -1,4 +1,6 @@
 function void Render(u8 x, u8 y, u16 index)
+	local u16 i = 0;
+	local u16 j = 0;
 	j = 0;
 	while j < 4 do
 		i = 0;

@@ -734,6 +734,7 @@ Scope GetScope(TokenVomiter tv)
 				inside.statements ~= ParseWhile(tv, inside);
 				break;
 			case KEYWORD.LOCAL:
+				tv.next();
 				Variable var = ParseLocal(tv);
 				inside.variables[var.name] = var;
 				break;
